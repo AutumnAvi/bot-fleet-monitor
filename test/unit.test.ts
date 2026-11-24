@@ -3,7 +3,7 @@ import { REDACTED, cleanBlock, cleanLine, redactSecrets, truncate } from "../src
 import { ClientError, parseIngestPayload } from "../src/lib/validate";
 import { activityText, buildFleetView, openUrl, stepText } from "../src/shared/fleet-view";
 import { STALE_AFTER_MS, type BotView } from "../src/shared/model";
-import { bucketOf, displayState } from "../src/shared/status";
+import { bucketOf, displayState, lastSeenAt } from "../src/shared/status";
 import { formatClock, formatFull, formatRelative } from "../src/shared/time";
 
 const NOW = Date.UTC(2026, 10, 24, 18, 30, 0); // 8:30 PM in Asia/Hebron (UTC+2)
@@ -35,6 +35,13 @@ describe("displayState / stale timer", () => {
     expect(displayState({ status: "working", statusAt: NOW - STALE_AFTER_MS + 1 }, NOW)).toBe("working");
     expect(displayState({ status: "working", statusAt: NOW - STALE_AFTER_MS }, NOW)).toBe("stale");
     expect(bucketOf("stale")).toBe("stuck");
+  });
+
+  it("last seen is the newest report of any kind", () => {
+    expect(lastSeenAt({ statusAt: null, lastReportAt: null })).toBeNull();
+    expect(lastSeenAt({ statusAt: null, lastReportAt: 5 })).toBe(5); // message-only bot
+    expect(lastSeenAt({ statusAt: 9, lastReportAt: 5 })).toBe(9);
+    expect(lastSeenAt({ statusAt: 3, lastReportAt: 5 })).toBe(5);
   });
 
   it("any later report counts as a sign of life", () => {
@@ -114,7 +121,7 @@ describe("fleet view", () => {
   });
 
   it("uses honest copy for unknown and stale bots", () => {
-    expect(stepText(bot({ id: "x" }), "unknown", NOW)).toBe("No report yet");
+    expect(stepText(bot({ id: "x" }), "unknown", NOW)).toBe("No status yet");
     expect(stepText(bot({ id: "x", step: "Syncing", statusAt: NOW - 14 * 60_000 }), "stale", NOW)).toBe(
       "No update for 14m · Syncing",
     );

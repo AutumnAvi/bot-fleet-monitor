@@ -48,7 +48,7 @@ export function openUrl(bot: Pick<BotView, "account" | "id">): string | null {
 export function stepText(bot: BotView, state: DisplayState, now: number): string {
   switch (state) {
     case "unknown":
-      return "No report yet";
+      return "No status yet";
     case "stale": {
       const silent = `No update for ${formatDuration(now - (lastSeenAt(bot) ?? now))}`;
       return bot.step ? `${silent} · ${bot.step}` : silent;

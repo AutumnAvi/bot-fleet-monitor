@@ -31,7 +31,7 @@ export const LIMITS = {
   messagesPerBot: 30,
   /** Bots per account, including the seed. Stops a leaked key from growing storage without bound. */
   botsPerAccount: 200,
-  /** Activity events kept in total. */
+  /** Activity events kept per account. */
   eventsRetained: 1000,
   eventDetailChars: 80,
   activityPageSize: 40,

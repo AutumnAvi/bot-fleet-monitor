@@ -54,7 +54,7 @@ dashboard never polls, pings or wakes a bot.
 | `error` | Stuck | Stuck |
 | `idle` | Idle | Idle |
 | `done` | Recorded in the feed as "Finished", then Idle | Idle |
-| never reported | "No report yet" (hollow dot) | Idle |
+| no status reported yet | "No status yet" (hollow dot) | Idle |
 
 ## Ingest API
 

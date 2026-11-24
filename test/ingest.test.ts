@@ -243,6 +243,17 @@ describe("rate limits", () => {
     });
   });
 
+  it("made-up bot ids do not create rate-limit rows (bounded storage)", async () => {
+    for (let i = 0; i < 50; i++) {
+      expect((await ingest("status", { botId: `ghost-${i}`, status: "idle" })).status).toBe(404);
+    }
+    const buckets = await sql<{ bucket: string }>("SELECT bucket FROM rate_limits");
+    expect(buckets.map((b) => b.bucket)).toEqual(["ingest:work"]);
+    // Real bots still get their own counter.
+    await ingest("status", { botId: CHIEF, status: "idle" });
+    expect((await sql("SELECT bucket FROM rate_limits")).length).toBe(2);
+  });
+
   it("invalid keys never reach storage", async () => {
     for (let i = 0; i < 5; i++) await ingest("status", { botId: CHIEF, status: "idle" }, "bad-key");
     expect(await sql("SELECT * FROM rate_limits")).toEqual([]);

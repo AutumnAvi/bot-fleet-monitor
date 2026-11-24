@@ -184,6 +184,20 @@ export class FleetStore extends DurableObject<Env> {
 
   // ---------------------------------------------------------------- rate limits
 
+  /** Says whether a hit would be allowed, without counting it (no write). */
+  private peekRateLimit(bucket: string, limit: number, windowMs: number, now: number): RateResult {
+    const row = this.sql
+      .exec<{ window_start: number; count: number }>(
+        "SELECT window_start, count FROM rate_limits WHERE bucket = ?",
+        bucket,
+      )
+      .toArray()[0];
+    if (!row || now - row.window_start >= windowMs || now < row.window_start || row.count < limit) {
+      return { ok: true, retryAfterSec: 0 };
+    }
+    return { ok: false, retryAfterSec: Math.max(1, Math.ceil((row.window_start + windowMs - now) / 1000)) };
+  }
+
   /** Fixed-window counter. Counts this hit and says whether it is allowed. */
   hitRateLimit(bucket: string, limit: number, windowMs: number, now: number = Date.now()): RateResult {
     const row = this.sql
@@ -259,14 +273,12 @@ export class FleetStore extends DurableObject<Env> {
     const now = Date.now();
     this.pruneIfDue(now);
 
-    // Per-bot first: a report the bot limit drops must not use up the shared key
-    // budget, or one runaway bot could starve every other bot on the account.
-    const botLimit = this.hitRateLimit(
-      `ingest:${account}:${payload.botId}`,
-      RATE_LIMITS.ingestPerBotPerMinute,
-      60_000,
-      now,
-    );
+    // Per-bot limit is checked first (without counting), so a report the bot limit
+    // drops never uses up the shared key budget: one runaway bot can't starve the
+    // others. The per-bot counter is only written for bots that exist (or are being
+    // registered), so made-up ids cannot grow the rate_limits table.
+    const botBucket = `ingest:${account}:${payload.botId}`;
+    const botLimit = this.peekRateLimit(botBucket, RATE_LIMITS.ingestPerBotPerMinute, 60_000, now);
     if (!botLimit.ok) return rateLimited(botLimit.retryAfterSec);
     const keyLimit = this.hitRateLimit(`ingest:${account}`, RATE_LIMITS.ingestPerKeyPerMinute, 60_000, now);
     if (!keyLimit.ok) return rateLimited(keyLimit.retryAfterSec);
@@ -278,6 +290,7 @@ export class FleetStore extends DurableObject<Env> {
         result = resolved;
         return;
       }
+      this.hitRateLimit(botBucket, RATE_LIMITS.ingestPerBotPerMinute, 60_000, now);
       const bot = resolved.bot;
       switch (payload.kind) {
         case "status": {

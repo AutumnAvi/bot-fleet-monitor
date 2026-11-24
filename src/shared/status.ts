@@ -6,19 +6,19 @@ export type DisplayState = StoredStatus | "unknown" | "stale";
 /** The four count tiles / filter chips. */
 export type Bucket = "needs_me" | "working" | "idle" | "stuck";
 
-/** Most recent sign of life: the status report or any later summary/message/reply push. */
+/** Most recent sign of life: the last report of any kind (status, summary, message, reply mark). */
 export function lastSeenAt(bot: { statusAt: number | null; lastReportAt?: number | null }): number | null {
-  if (bot.statusAt === null) return null;
-  return Math.max(bot.statusAt, bot.lastReportAt ?? 0);
+  const reported = bot.lastReportAt ?? null;
+  if (bot.statusAt === null) return reported;
+  return reported === null ? bot.statusAt : Math.max(bot.statusAt, reported);
 }
 
 export function displayState(
   bot: { status: StoredStatus | null; statusAt: number | null; lastReportAt?: number | null },
   now: number,
 ): DisplayState {
-  const seen = lastSeenAt(bot);
-  if (bot.status === null || seen === null) return "unknown";
-  if (bot.status === "working" && now - seen >= STALE_AFTER_MS) return "stale";
+  if (bot.status === null || bot.statusAt === null) return "unknown";
+  if (bot.status === "working" && now - (lastSeenAt(bot) ?? bot.statusAt) >= STALE_AFTER_MS) return "stale";
   return bot.status;
 }
 
@@ -41,7 +41,7 @@ export const STATE_LABEL: Record<DisplayState, string> = {
   waiting_user: "Needs me",
   working: "Working",
   idle: "Idle",
-  unknown: "No report yet",
+  unknown: "No status yet",
   error: "Stuck",
   stale: "Stale",
 };

@@ -38,13 +38,11 @@ if [ -z "$BOT_FLEET_URL" ] || [ -z "$BOT_FLEET_KEY" ] || [ -z "$BOT_FLEET_BOT_ID
   warn "BOT_FLEET_URL, BOT_FLEET_KEY and BOT_FLEET_BOT_ID must be set; report skipped"
   exit 0
 fi
-case $BOT_FLEET_URL in
-  https://* | http://localhost* | http://127.0.0.1*) ;;
-  *)
-    warn "BOT_FLEET_URL must be https; report skipped"
-    exit 0
-    ;;
-esac
+# https only (plain http just for a local dev server; the host must end right there).
+if ! [[ $BOT_FLEET_URL =~ ^https:// || $BOT_FLEET_URL =~ ^http://(localhost|127\.0\.0\.1)(:[0-9]+)?(/|$) ]]; then
+  warn "BOT_FLEET_URL must be https; report skipped"
+  exit 0
+fi
 command -v curl >/dev/null 2>&1 || {
   warn "curl not found; report skipped"
   exit 0
@@ -61,6 +59,7 @@ for l in C.UTF-8 C.utf8 en_US.UTF-8 en_US.utf8; do
     break
   fi
 done
+[ "$utf8_locale" -eq 1 ] || unset LC_ALL
 
 # JSON string literal: escape \ " and newlines/tabs, drop other control characters.
 json_str() {
@@ -74,9 +73,16 @@ json_str() {
   printf '"%s"' "$s"
 }
 
-cap() { # cap <text> <max chars>; leaves text alone without a UTF-8 locale (server truncates)
+cap() { # cap <text> <max chars>
   local s=$1 max=$2
-  if [ "$utf8_locale" -eq 1 ] && [ "${#s}" -gt "$max" ]; then s="${s:0:$((max - 1))}…"; fi
+  if [ "$utf8_locale" -eq 1 ]; then
+    if [ "${#s}" -gt "$max" ]; then s="${s:0:$((max - 1))}…"; fi
+  elif [ "$(printf '%s' "$s" | wc -c)" -gt $((max * 3)) ]; then
+    # No UTF-8 locale: cut by bytes (keeps the body under the 16 KB limit) and drop a
+    # character split by the cut, if iconv is there. The server truncates the rest.
+    s=$(printf '%s' "$s" | head -c $((max * 3)))
+    if command -v iconv >/dev/null 2>&1; then s=$(printf '%s' "$s" | iconv -c -f UTF-8 -t UTF-8 2>/dev/null); fi
+  fi
   printf '%s' "$s"
 }
 

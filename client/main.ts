@@ -12,7 +12,7 @@ import {
   type StatusFilter,
 } from "../src/shared/fleet-view";
 import { LIMITS, type ActivityItem, type BotDetail, type FleetResponse } from "../src/shared/model";
-import { STATE_LABEL, type Bucket, type DisplayState } from "../src/shared/status";
+import { STATE_LABEL, lastSeenAt, type Bucket, type DisplayState } from "../src/shared/status";
 import { formatClock, formatFull, formatRelative } from "../src/shared/time";
 import { SignedOutError, fetchActivity, fetchBot, fetchFleet } from "./api";
 import { h, icon, type IconName } from "./dom";
@@ -44,6 +44,8 @@ interface State {
   olderActivity: ActivityItem[];
   olderNext: number | null;
   olderLoaded: boolean;
+  /** Bumped whenever older pages are reset, so in-flight "View older" responses are dropped. */
+  olderGen: number;
   loadingOlder: boolean;
   detail: DetailState | null;
 }
@@ -60,6 +62,7 @@ const state: State = {
   olderActivity: [],
   olderNext: null,
   olderLoaded: false,
+  olderGen: 0,
   loadingOlder: false,
   detail: null,
 };
@@ -306,7 +309,7 @@ function rowEl(row: BotRowView, showAccountTag: boolean): HTMLElement {
     h("span", { class: DOT_CLASS[row.state], title: STATE_LABEL[row.state] }),
     name,
     h("span", { class: "step" }, row.stepText),
-    timeEl(bot.statusAt),
+    timeEl(lastSeenAt(bot)),
   );
   main.addEventListener("click", () => openDetail(bot.account, bot.id, `row:${bot.account}/${bot.id}`));
   return h("li", { class: "row" }, main, openControl(row));
@@ -382,7 +385,8 @@ function renderFleet(): void {
   for (const group of view.groups) {
     sections.push(groupEl(`g:${group.name}`, group.name, group.rows, { emptyText: group.emptyText, showAccountTag: false }));
   }
-  if (view.shown === 0 && (state.query.trim() !== "" || state.filter !== "all")) {
+  const needsMeEmptyShown = state.filter === "needs_me" && state.query.trim() === "";
+  if (view.shown === 0 && (state.query.trim() !== "" || state.filter !== "all") && !needsMeEmptyShown) {
     sections.push(h("p", { class: "empty" }, "No bots match."));
   }
   const focused = activeKey(fleet);
@@ -436,7 +440,9 @@ function renderFeed(): void {
   const parts: HTMLElement[] = [h("h2", { class: "feed-head" }, "Activity"), list];
   if (more) parts.push(more);
   const focused = activeKey(feed);
+  const scrollTop = feed.querySelector(".feed-list")?.scrollTop ?? 0;
   feed.replaceChildren(...parts);
+  list.scrollTop = scrollTop; // keep the reader's place across refreshes and "View older"
   focusByKey(focused, feed);
 }
 
@@ -546,6 +552,7 @@ function renderDetail(focus = false): void {
   close.addEventListener("click", closeDetail);
 
   const body: (HTMLElement | null)[] = [];
+  const lastReport = bot ? lastSeenAt(bot) : null;
   if (row && bot) {
     body.push(
       h("p", { class: `detail-state state-${row.state}` }, h("strong", {}, STATE_LABEL[row.state]), " · ", row.stepText),
@@ -553,7 +560,7 @@ function renderDetail(focus = false): void {
         "dl",
         { class: "detail-meta" },
         h("dt", {}, "Last report"),
-        h("dd", {}, bot.statusAt === null ? "Never" : `${formatFull(bot.statusAt)} (${formatRelative(bot.statusAt, t)})`),
+        h("dd", {}, lastReport === null ? "Never" : `${formatFull(lastReport)} (${formatRelative(lastReport, t)})`),
         h("dt", {}, "Account"),
         h("dd", {}, `${bot.account === "work" ? "Work" : "Leaf"} · ${bot.group}`),
       ),
@@ -669,6 +676,7 @@ function resetOlderActivity(): void {
   state.olderActivity = [];
   state.olderNext = null;
   state.olderLoaded = false;
+  state.olderGen += 1;
 }
 
 /**
@@ -678,7 +686,9 @@ function resetOlderActivity(): void {
  * leaving a silent gap.
  */
 function carryOlderActivity(prev: FleetResponse | null, next: FleetResponse): void {
-  if (!state.olderLoaded || !prev) return;
+  // Also while the first "View older" is in flight: its page continues from the
+  // previous first page, so that page's tail must be kept too.
+  if ((!state.olderLoaded && !state.loadingOlder) || !prev) return;
   const known = [...prev.activity.items, ...state.olderActivity];
   const newest = known.reduce((max, item) => Math.max(max, item.seq), -Infinity);
   const page = next.activity.items;
@@ -730,12 +740,17 @@ async function refresh(): Promise<void> {
 async function loadOlder(before: number | null): Promise<void> {
   if (before === null || state.loadingOlder) return;
   const account = state.account;
+  const gen = state.olderGen;
   state.loadingOlder = true;
   renderFeed();
   try {
     const page = await fetchActivity(before, account);
-    if (account === state.account) {
-      state.olderActivity = [...state.olderActivity, ...page.items];
+    // Drop the page if the account changed or paging was reset (a gap opened) meanwhile.
+    if (account === state.account && gen === state.olderGen) {
+      const seen = new Set<number>();
+      state.olderActivity = [...state.olderActivity, ...page.items]
+        .filter((item) => !seen.has(item.seq) && seen.add(item.seq))
+        .sort((a, b) => b.seq - a.seq);
       state.olderNext = page.nextBefore;
       state.olderLoaded = true;
     }
