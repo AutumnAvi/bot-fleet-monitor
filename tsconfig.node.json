@@ -1,0 +1,15 @@
+{
+  // Node-side config files (vitest config). Kept apart from the Workers types.
+  "compilerOptions": {
+    "target": "es2022",
+    "module": "es2022",
+    "moduleResolution": "bundler",
+    "lib": ["es2022"],
+    "types": ["node"],
+    "strict": true,
+    "allowImportingTsExtensions": true,
+    "skipLibCheck": true,
+    "noEmit": true
+  },
+  "include": ["vitest.config.ts", "test/fixtures.ts"]
+}

@@ -1,0 +1,33 @@
+// Bot Fleet monitor: one Worker + one SQLite-backed Durable Object.
+// Secrets are never stored here. See docs/DEPLOY.md.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "bot-fleet-monitor",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-11-20",
+  "workers_dev": true,
+  "preview_urls": false,
+  // No cron triggers on purpose: the Worker never wakes or polls bots.
+  "triggers": { "crons": [] },
+  // Static, data-free client files (JS/CSS/icon). The HTML shell and all
+  // data endpoints are served by the Worker behind the password.
+  "assets": {
+    "directory": "./dist/client",
+    "binding": "ASSETS",
+    "not_found_handling": "none",
+    "html_handling": "none"
+  },
+  "durable_objects": {
+    "bindings": [{ "name": "FLEET", "class_name": "FleetStore" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["FleetStore"] }],
+  "secrets": {
+    "required": ["DASHBOARD_PASSWORD_HASH", "INGEST_KEY_WORK", "INGEST_KEY_LEAF"]
+  },
+  // Our own logs are one JSON line per ingest/login with no keys or bot text.
+  // Invocation logs (which carry request headers) stay off.
+  "observability": {
+    "enabled": true,
+    "logs": { "enabled": true, "invocation_logs": false }
+  }
+}

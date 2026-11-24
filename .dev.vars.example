@@ -1,0 +1,8 @@
+# Local `npm run dev` only. Copy to .dev.vars (gitignored) and replace every value
+# with throwaway local ones. Never put the real secrets here.
+#
+# Hash for a local password:
+#   printf '%s' 'local-dev-password-123' | node scripts/hash-password.mjs
+DASHBOARD_PASSWORD_HASH=pbkdf2-sha256:25000:REPLACE_WITH_SALT:REPLACE_WITH_HASH
+INGEST_KEY_WORK=bfw_local_dev_only_replace_me_0000000000000000
+INGEST_KEY_LEAF=bfl_local_dev_only_replace_me_1111111111111111
