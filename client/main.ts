@@ -33,6 +33,8 @@ interface DetailState {
 
 interface State {
   data: FleetResponse | null;
+  /** Account filter the activity page in `data` was fetched for (it lags a switch until the refresh lands). */
+  dataAccount: AccountFilter | null;
   error: string | null;
   lastLoadedAt: number | null;
   /** serverNow - clientNow, so stale/relative times use the server clock. */
@@ -52,6 +54,7 @@ interface State {
 
 const state: State = {
   data: null,
+  dataAccount: null,
   error: null,
   lastLoadedAt: null,
   clockOffset: 0,
@@ -394,7 +397,13 @@ function renderFleet(): void {
   focusByKey(focused, fleet);
 }
 
+/** The loaded feed page belongs to the selected account (false right after a switch). */
+function feedReady(): boolean {
+  return state.data !== null && state.dataAccount === state.account;
+}
+
 function activityItems(): { items: ActivityItem[]; next: number | null } {
+  if (!feedReady()) return { items: [], next: null }; // never page with another account's cursor
   const first = state.data?.activity.items ?? [];
   const lastSeq = first[first.length - 1]?.seq ?? Infinity;
   const older = state.olderActivity.filter((item) => item.seq < lastSeq);
@@ -409,7 +418,9 @@ function renderFeed(): void {
   const visible = items.filter((item) => accountMatches(item.account, state.account));
   const list = h("ol", { class: "feed-list" });
   if (visible.length === 0) {
-    list.append(h("li", { class: "feed-empty" }, state.data ? "No activity yet. Bots add to this feed when they report." : "Loading…"));
+    list.append(
+      h("li", { class: "feed-empty" }, feedReady() ? "No activity yet. Bots add to this feed when they report." : "Loading…"),
+    );
   }
   const t = now();
   for (const item of visible) {
@@ -685,10 +696,11 @@ function resetOlderActivity(): void {
  * since the last refresh, the two no longer touch, so paging restarts instead of
  * leaving a silent gap.
  */
-function carryOlderActivity(prev: FleetResponse | null, next: FleetResponse): void {
+function carryOlderActivity(prev: FleetResponse | null, next: FleetResponse, nextAccount: AccountFilter): void {
   // Also while the first "View older" is in flight: its page continues from the
-  // previous first page, so that page's tail must be kept too.
-  if ((!state.olderLoaded && !state.loadingOlder) || !prev) return;
+  // previous first page, so that page's tail must be kept too. Never carry across
+  // an account switch (the switch already reset the older pages).
+  if ((!state.olderLoaded && !state.loadingOlder) || !prev || state.dataAccount !== nextAccount) return;
   const known = [...prev.activity.items, ...state.olderActivity];
   const newest = known.reduce((max, item) => Math.max(max, item.seq), -Infinity);
   const page = next.activity.items;
@@ -715,9 +727,10 @@ async function refresh(): Promise<void> {
   try {
     const data = await fetchFleet(account);
     if (account === state.account) {
-      carryOlderActivity(state.data, data);
+      carryOlderActivity(state.data, data, account);
       state.clockOffset = data.now - Date.now();
       state.data = data;
+      state.dataAccount = account;
       state.error = null;
       state.lastLoadedAt = data.now;
     } else {
@@ -738,7 +751,7 @@ async function refresh(): Promise<void> {
 }
 
 async function loadOlder(before: number | null): Promise<void> {
-  if (before === null || state.loadingOlder) return;
+  if (before === null || state.loadingOlder || !feedReady()) return;
   const account = state.account;
   const gen = state.olderGen;
   state.loadingOlder = true;
@@ -756,6 +769,8 @@ async function loadOlder(before: number | null): Promise<void> {
     }
   } catch (err) {
     if (err instanceof SignedOutError) return signedOut();
+    // A failed first page must not leave carried items behind with paging still off.
+    if (gen === state.olderGen && !state.olderLoaded) state.olderActivity = [];
   } finally {
     state.loadingOlder = false;
   }
