@@ -11,7 +11,7 @@ import {
   type BotRowView,
   type StatusFilter,
 } from "../src/shared/fleet-view";
-import type { ActivityItem, BotDetail, FleetResponse } from "../src/shared/model";
+import { LIMITS, type ActivityItem, type BotDetail, type FleetResponse } from "../src/shared/model";
 import { STATE_LABEL, type Bucket, type DisplayState } from "../src/shared/status";
 import { formatClock, formatFull, formatRelative } from "../src/shared/time";
 import { SignedOutError, fetchActivity, fetchBot, fetchFleet } from "./api";
@@ -27,7 +27,8 @@ interface DetailState {
   data: BotDetail | null;
   loading: boolean;
   error: string | null;
-  returnFocus: HTMLElement | null;
+  /** data-key of the element to focus again when the drawer closes. */
+  returnFocusKey: string | null;
 }
 
 interface State {
@@ -157,7 +158,9 @@ function buildLayout(root: HTMLElement): void {
   account.addEventListener("change", () => {
     state.account = account.value as AccountFilter;
     savePrefs();
+    resetOlderActivity();
     renderAll();
+    void refresh(); // the feed's first page is fetched per account
   });
   refs.account = account;
 
@@ -216,6 +219,21 @@ function setFilter(filter: StatusFilter): void {
   renderFleet();
 }
 
+// Re-renders replace DOM nodes; interactive elements carry a stable data-key so
+// keyboard focus survives refreshes, group toggles and closing the drawer.
+function activeKey(within?: Element): string | null {
+  const el = document.activeElement;
+  if (!(el instanceof HTMLElement) || (within && !within.contains(el))) return null;
+  return el.dataset.key ?? null;
+}
+
+function focusByKey(key: string | null, within: ParentNode = document): boolean {
+  if (key === null) return false;
+  const el = Array.from(within.querySelectorAll<HTMLElement>("[data-key]")).find((e) => e.dataset.key === key);
+  el?.focus({ preventScroll: true });
+  return el !== undefined;
+}
+
 // ------------------------------------------------------------------ rendering
 
 const DOT_CLASS: Record<DisplayState, string> = {
@@ -240,13 +258,24 @@ function openControl(row: BotRowView, extraClass = ""): HTMLElement {
   if (row.openUrl === null) {
     return h(
       "button",
-      { type: "button", class: `open-btn ${extraClass}`, disabled: true, title: LEAF_OPEN_NOTE, "aria-label": `Open ${row.bot.name} (not available for Leaf bots)` },
+      {
+        type: "button",
+        class: `open-btn ${extraClass}`,
+        disabled: true,
+        title: LEAF_OPEN_NOTE,
+        "aria-label": `Open ${row.bot.name} (not available for Leaf bots)`,
+      },
       "Open",
     );
   }
   return h(
     "a",
-    { class: `open-btn ${extraClass}`, href: row.openUrl, "aria-label": `Open ${row.bot.name} in Grok Bot` },
+    {
+      class: `open-btn ${extraClass}`,
+      href: row.openUrl,
+      "aria-label": `Open ${row.bot.name} in Grok Bot`,
+      "data-key": `${extraClass ? "detail-open" : "open"}:${row.bot.account}/${row.bot.id}`,
+    },
     "Open",
     icon("chevronRight", "icon chev-r"),
   );
@@ -272,13 +301,14 @@ function rowEl(row: BotRowView, showAccountTag: boolean): HTMLElement {
       type: "button",
       class: `row-main state-${row.state}`,
       "aria-label": `${bot.name}: ${STATE_LABEL[row.state]}. ${row.stepText}. Show details`,
+      "data-key": `row:${bot.account}/${bot.id}`,
     },
     h("span", { class: DOT_CLASS[row.state], title: STATE_LABEL[row.state] }),
     name,
     h("span", { class: "step" }, row.stepText),
     timeEl(bot.statusAt),
   );
-  main.addEventListener("click", () => openDetail(bot.account, bot.id, main));
+  main.addEventListener("click", () => openDetail(bot.account, bot.id, `row:${bot.account}/${bot.id}`));
   return h("li", { class: "row" }, main, openControl(row));
 }
 
@@ -287,7 +317,13 @@ function groupEl(key: string, title: string, rows: BotRowView[], options: { need
   const listId = `group-${key.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}`;
   const toggle = h(
     "button",
-    { type: "button", class: "group-toggle", "aria-expanded": String(!collapsed), "aria-controls": listId },
+    {
+      type: "button",
+      class: "group-toggle",
+      "aria-expanded": String(!collapsed),
+      "aria-controls": listId,
+      "data-key": `toggle:${key}`,
+    },
     h("span", { class: "group-title" }, title),
     options.needsMe ? h("span", { class: "dot amber small", "aria-hidden": "true" }) : null,
     h("span", { class: "group-count" }, String(rows.length)),
@@ -338,7 +374,7 @@ function renderFleet(): void {
     sections.push(
       groupEl("needs-me", "Needs me", view.needsMe, {
         needsMe: true,
-        emptyText: "Nothing needs you right now.",
+        emptyText: state.query.trim() === "" ? "Nothing needs you right now." : null,
         showAccountTag,
       }),
     );
@@ -349,7 +385,9 @@ function renderFleet(): void {
   if (view.shown === 0 && (state.query.trim() !== "" || state.filter !== "all")) {
     sections.push(h("p", { class: "empty" }, "No bots match."));
   }
+  const focused = activeKey(fleet);
   fleet.replaceChildren(...sections);
+  focusByKey(focused, fleet);
 }
 
 function activityItems(): { items: ActivityItem[]; next: number | null } {
@@ -373,22 +411,33 @@ function renderFeed(): void {
   for (const item of visible) {
     const button = h(
       "button",
-      { type: "button", class: "feed-btn", title: `${item.botName} ${activityText(item)}` },
+      {
+        type: "button",
+        class: "feed-btn",
+        title: `${item.botName} ${activityText(item)}`,
+        "data-key": `feed:${item.seq}`,
+      },
       h("time", { class: "feed-time", datetime: new Date(item.at).toISOString(), title: formatFull(item.at) }, formatClock(item.at, t)),
       h("span", { class: `dot small ${activityTone(item.kind)}`, "aria-hidden": "true" }),
       h("span", { class: "feed-text" }, h("strong", {}, item.botName), " ", activityText(item)),
     );
-    button.addEventListener("click", () => openDetail(item.account, item.botId, button));
+    button.addEventListener("click", () => openDetail(item.account, item.botId, `feed:${item.seq}`));
     list.append(h("li", { class: "feed-item" }, button));
   }
   const more =
     next !== null
-      ? h("button", { type: "button", class: "feed-more", disabled: state.loadingOlder }, state.loadingOlder ? "Loading…" : "View older activity…")
+      ? h(
+          "button",
+          { type: "button", class: "feed-more", disabled: state.loadingOlder, "data-key": "feed-more" },
+          state.loadingOlder ? "Loading…" : "View older activity…",
+        )
       : null;
   more?.addEventListener("click", () => void loadOlder(next));
   const parts: HTMLElement[] = [h("h2", { class: "feed-head" }, "Activity"), list];
   if (more) parts.push(more);
+  const focused = activeKey(feed);
   feed.replaceChildren(...parts);
+  focusByKey(focused, feed);
 }
 
 function renderStatusLine(): void {
@@ -419,16 +468,16 @@ function parseHash(): { account: string; id: string } | null {
   }
 }
 
-function openDetail(account: string, id: string, from: HTMLElement | null): void {
+function openDetail(account: string, id: string, fromKey: string | null): void {
   const hash = `#bot/${account}/${encodeURIComponent(id)}`;
   if (location.hash !== hash) history.pushState({ detail: true }, "", hash);
-  showDetail(account, id, from ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null));
+  showDetail(account, id, fromKey);
 }
 
-function showDetail(account: string, id: string, returnFocus: HTMLElement | null): void {
+function showDetail(account: string, id: string, returnFocusKey: string | null): void {
   const same = state.detail?.account === account && state.detail.id === id;
   if (!same) {
-    state.detail = { account, id, data: null, loading: true, error: null, returnFocus };
+    state.detail = { account, id, data: null, loading: true, error: null, returnFocusKey };
   }
   renderDetail(true);
   void loadDetail();
@@ -445,23 +494,26 @@ function closeDetail(): void {
 }
 
 function hideDetail(): void {
-  const focus = state.detail?.returnFocus;
+  const key = state.detail?.returnFocusKey ?? null;
   state.detail = null;
   renderDetail();
-  if (focus?.isConnected) focus.focus();
+  focusByKey(key);
 }
 
+let detailLoadSeq = 0;
 async function loadDetail(): Promise<void> {
   const detail = state.detail;
   if (!detail) return;
+  const seq = ++detailLoadSeq;
   try {
     const data = await fetchBot(detail.account, detail.id);
-    if (state.detail !== detail) return;
+    // Drop stale responses: the drawer changed, or a newer load was started.
+    if (state.detail !== detail || seq !== detailLoadSeq) return;
     detail.data = data;
     detail.error = data ? null : "This bot is not on the roster.";
   } catch (err) {
     if (err instanceof SignedOutError) return signedOut();
-    if (state.detail !== detail) return;
+    if (state.detail !== detail || seq !== detailLoadSeq) return;
     detail.error = "Could not load details. Retrying with the next refresh.";
   }
   detail.loading = false;
@@ -486,7 +538,11 @@ function renderDetail(focus = false): void {
   const bot = detail.data?.bot ?? fromList;
   const row = bot ? toRow(bot, t) : null;
 
-  const close = h("button", { type: "button", class: "icon-btn", "aria-label": "Close details" }, icon("close"));
+  const close = h(
+    "button",
+    { type: "button", class: "icon-btn", "aria-label": "Close details", "data-key": "detail-close" },
+    icon("close"),
+  );
   close.addEventListener("click", closeDetail);
 
   const body: (HTMLElement | null)[] = [];
@@ -539,9 +595,17 @@ function renderDetail(focus = false): void {
       d.bot.lastAviReplyAt !== null
         ? h("p", { class: "muted small" }, `Your last reply was marked ${formatFull(d.bot.lastAviReplyAt)}.`)
         : null;
+    const capped = d.messages.length >= LIMITS.messagesPerBot;
     body.push(
       section(
-        d.messages.length > 0 ? `Messages since your last reply (${d.messages.length})` : "Messages since your last reply",
+        d.messages.length === 0
+          ? "Messages since your last reply"
+          : capped
+            ? `Latest ${d.messages.length} messages since your last reply`
+            : `Messages since your last reply (${d.messages.length})`,
+        capped
+          ? h("p", { class: "muted small" }, `Only the newest ${LIMITS.messagesPerBot} are kept. Open the chat for anything older.`)
+          : null,
         d.messages.length > 0 ? messages : h("p", { class: "empty-inline" }, "No messages since your last reply."),
         replyNote,
       ),
@@ -566,12 +630,13 @@ function renderDetail(focus = false): void {
 
   // Re-rendering on refresh must not steal focus or jump the scroll position.
   const hadFocus = root.contains(document.activeElement);
+  const focused = activeKey(root);
   const scrollTop = root.querySelector(".drawer-body")?.scrollTop ?? 0;
   root.replaceChildren(overlay, dialog);
   const newBody = root.querySelector(".drawer-body");
   if (newBody) newBody.scrollTop = scrollTop;
   if (focus) close.focus();
-  else if (hadFocus) dialog.focus();
+  else if (hadFocus && !focusByKey(focused, dialog)) dialog.focus();
 }
 
 /** Keeps Tab inside the open detail dialog. */
@@ -600,16 +665,54 @@ function signedOut(): void {
   location.assign("/login");
 }
 
+function resetOlderActivity(): void {
+  state.olderActivity = [];
+  state.olderNext = null;
+  state.olderLoaded = false;
+}
+
+/**
+ * Keeps "View older" pages consistent across refreshes: items that slide off the
+ * new first page move into the older list. If more than a page of events arrived
+ * since the last refresh, the two no longer touch, so paging restarts instead of
+ * leaving a silent gap.
+ */
+function carryOlderActivity(prev: FleetResponse | null, next: FleetResponse): void {
+  if (!state.olderLoaded || !prev) return;
+  const known = [...prev.activity.items, ...state.olderActivity];
+  const newest = known.reduce((max, item) => Math.max(max, item.seq), -Infinity);
+  const page = next.activity.items;
+  const oldestNew = page[page.length - 1]?.seq;
+  if (page.length >= LIMITS.activityPageSize && oldestNew !== undefined && oldestNew > newest) {
+    resetOlderActivity();
+    return;
+  }
+  const seen = new Set<number>();
+  state.olderActivity = known
+    .filter((item) => !seen.has(item.seq) && seen.add(item.seq))
+    .sort((a, b) => b.seq - a.seq);
+}
+
 let refreshing = false;
+let refreshAgain = false;
 async function refresh(): Promise<void> {
-  if (refreshing) return;
+  if (refreshing) {
+    refreshAgain = true;
+    return;
+  }
   refreshing = true;
+  const account = state.account;
   try {
-    const data = await fetchFleet();
-    state.clockOffset = data.now - Date.now();
-    state.data = data;
-    state.error = null;
-    state.lastLoadedAt = data.now;
+    const data = await fetchFleet(account);
+    if (account === state.account) {
+      carryOlderActivity(state.data, data);
+      state.clockOffset = data.now - Date.now();
+      state.data = data;
+      state.error = null;
+      state.lastLoadedAt = data.now;
+    } else {
+      refreshAgain = true; // switched accounts mid-request: fetch again for the new one
+    }
   } catch (err) {
     if (err instanceof SignedOutError) return signedOut();
     state.error = state.data ? "Refresh failed; showing the last data." : "Could not load the fleet. Retrying…";
@@ -618,17 +721,24 @@ async function refresh(): Promise<void> {
   }
   renderAll();
   if (state.detail) void loadDetail();
+  if (refreshAgain) {
+    refreshAgain = false;
+    void refresh();
+  }
 }
 
 async function loadOlder(before: number | null): Promise<void> {
   if (before === null || state.loadingOlder) return;
+  const account = state.account;
   state.loadingOlder = true;
   renderFeed();
   try {
-    const page = await fetchActivity(before);
-    state.olderActivity = [...state.olderActivity, ...page.items];
-    state.olderNext = page.nextBefore;
-    state.olderLoaded = true;
+    const page = await fetchActivity(before, account);
+    if (account === state.account) {
+      state.olderActivity = [...state.olderActivity, ...page.items];
+      state.olderNext = page.nextBefore;
+      state.olderLoaded = true;
+    }
   } catch (err) {
     if (err instanceof SignedOutError) return signedOut();
   } finally {

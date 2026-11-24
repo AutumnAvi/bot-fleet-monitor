@@ -13,3 +13,7 @@ coverage/
 .turbo/
 .cache/
 !.dev.vars.example
+# Backstop: secret files must live outside the repo (see docs/DEPLOY.md).
+dashboard-password*
+ingest-key-*
+ingest-url

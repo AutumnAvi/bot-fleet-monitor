@@ -112,8 +112,14 @@ async function handleLogout(request: Request, env: Env): Promise<Response> {
 // ------------------------------------------------------------------ ingest
 
 async function handleIngest(request: Request, env: Env, kind: string): Promise<Response> {
-  if (!isIngestKind(kind)) return apiError(404, "not_found", "Unknown report type");
-  if (request.method !== "POST") return methodNotAllowed("POST");
+  if (!isIngestKind(kind)) {
+    log({ evt: "ingest", result: "unknown_kind", status: 404 });
+    return apiError(404, "not_found", "Unknown report type");
+  }
+  if (request.method !== "POST") {
+    log({ evt: "ingest", kind, result: "method_not_allowed", status: 405 });
+    return methodNotAllowed("POST");
+  }
 
   const account = await accountForKey(bearerToken(request), env);
   if (account === null) {
@@ -160,7 +166,17 @@ async function handleApi(request: Request, env: Env, url: URL): Promise<Response
   if (request.method !== "GET") return methodNotAllowed("GET");
   if (!(await hasSession(request, env))) return apiError(401, "unauthorized", "Sign in first");
 
-  if (url.pathname === "/api/fleet") return json(await store(env).fleet());
+  // Optional ?account=work|leaf narrows the activity feed (the bot list always has both).
+  const accountParam = url.searchParams.get("account");
+  let activityAccount: Account | null = null;
+  if (accountParam !== null && accountParam !== "both") {
+    if (!(ACCOUNTS as readonly string[]).includes(accountParam)) {
+      return apiError(400, "invalid_account", '"account" must be work, leaf or both');
+    }
+    activityAccount = accountParam as Account;
+  }
+
+  if (url.pathname === "/api/fleet") return json(await store(env).fleet(activityAccount));
 
   if (url.pathname === "/api/activity") {
     const raw = url.searchParams.get("before");
@@ -169,7 +185,7 @@ async function handleApi(request: Request, env: Env, url: URL): Promise<Response
       if (!/^[1-9][0-9]{0,15}$/.test(raw)) return apiError(400, "invalid_cursor", '"before" must be a positive integer');
       before = Number(raw);
     }
-    return json(await store(env).activity(before));
+    return json(await store(env).activity(before, activityAccount));
   }
 
   const match = /^\/api\/bots\/([^/]+)\/([^/]+)$/.exec(url.pathname);
@@ -199,7 +215,7 @@ async function route(request: Request, env: Env): Promise<Response> {
 
   if (path === "/healthz") return text("ok");
 
-  const ingest = /^\/ingest\/v1\/([a-z-]+)$/.exec(path);
+  const ingest = /^\/ingest\/v1\/([^/]*)$/.exec(path);
   if (ingest) return handleIngest(request, env, ingest[1] ?? "");
 
   if (path === "/login") return handleLogin(request, env);

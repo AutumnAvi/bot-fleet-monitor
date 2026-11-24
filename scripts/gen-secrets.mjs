@@ -5,8 +5,10 @@
 //
 //   node scripts/gen-secrets.mjs --dir /path/outside/repo [--force] [--iterations 25000]
 
+import { realpathSync } from "node:fs";
 import { chmod, stat, writeFile } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { isAbsolute, join, relative, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { DEFAULT_ITERATIONS, generateKey, generatePassword, hashPassword } from "./secrets-lib.mjs";
 
 function arg(name) {
@@ -22,14 +24,18 @@ if (!dir) {
   console.error("usage: node scripts/gen-secrets.mjs --dir <private dir outside the repo> [--force] [--iterations N]");
   process.exit(2);
 }
-const target = resolve(dir);
-if (target.startsWith(resolve(process.cwd()))) {
-  console.error("Refusing to write secrets inside the repository. Pick a directory outside it.");
+const info = await stat(resolve(dir)).catch(() => null);
+if (!info?.isDirectory()) {
+  console.error(`${resolve(dir)} must be an existing directory (create it with mode 700 first).`);
   process.exit(2);
 }
-const info = await stat(target).catch(() => null);
-if (!info?.isDirectory()) {
-  console.error(`${target} must be an existing directory (create it with mode 700 first).`);
+// Refuse any directory inside this checkout (compared by real path, not string prefix,
+// so symlinks, subdirectories and sibling folders like ../repo-secrets are handled).
+const repoRoot = realpathSync(fileURLToPath(new URL("..", import.meta.url)));
+const target = realpathSync(resolve(dir));
+const rel = relative(repoRoot, target);
+if (rel === "" || (!isAbsolute(rel) && rel.split(/[\\/]/)[0] !== "..")) {
+  console.error("Refusing to write secrets inside the repository. Pick a directory outside it.");
   process.exit(2);
 }
 

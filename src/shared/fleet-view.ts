@@ -2,7 +2,7 @@
 // Lives in shared code so it is unit-tested in the Workers test pool.
 
 import { GROUP_ORDER, LEAF_GROUP, type ActivityItem, type BotView } from "./model";
-import { bucketOf, displayState, type Bucket, type DisplayState } from "./status";
+import { bucketOf, displayState, lastSeenAt, type Bucket, type DisplayState } from "./status";
 import { formatDuration } from "./time";
 
 export type AccountFilter = "both" | "work" | "leaf";
@@ -50,7 +50,7 @@ export function stepText(bot: BotView, state: DisplayState, now: number): string
     case "unknown":
       return "No report yet";
     case "stale": {
-      const silent = `No update for ${formatDuration(now - (bot.statusAt ?? now))}`;
+      const silent = `No update for ${formatDuration(now - (lastSeenAt(bot) ?? now))}`;
       return bot.step ? `${silent} · ${bot.step}` : silent;
     }
     case "idle":

@@ -4,8 +4,9 @@ Chief rolls this out. Copy the block below into each bot's instructions as-is. I
 environment variable names only; the real URL and write keys live outside the repo
 (see `docs/DEPLOY.md`). Work-account bots get the work key, Leaf-account bots the Leaf key.
 
-Set per bot: `BOT_FLEET_URL`, `BOT_FLEET_KEY`, `BOT_FLEET_BOT_ID` (and `BOT_FLEET_NAME` for
-Leaf bots, which are not in the roster seed). `report.sh` is `docs/report.sh` from this repo,
+Set per bot: `BOT_FLEET_URL`, `BOT_FLEET_KEY`, `BOT_FLEET_BOT_ID`, plus `BOT_FLEET_NAME` (and
+optionally `BOT_FLEET_GROUP`) for any bot that is not in `docs/roster-seed.json`: every Leaf
+bot, and any work bot added after the seed. `report.sh` is `docs/report.sh` from this repo,
 installed wherever the bot can run it.
 
 ---
@@ -21,6 +22,8 @@ Avi's Bot Fleet dashboard shows only what you push. Pushing is cheap; it must ne
 3. Last action of the turn: `report.sh status <done|idle|waiting_user|error> "<one line>"`.
    Statuses: working = doing it now; waiting_user = you need Avi; idle = nothing to do;
    error = you are stuck; done = finished (shows as idle).
+   A working bot with no report of any kind for 10 minutes shows as stale. In a long turn,
+   re-send `status working "<new step>"` when the step really changes (not on a timer).
 4. When what Avi needs to know changes, push it: `report.sh summary "<short paragraph>"`.
 5. Every time you send Avi a message, push a copy: `report.sh message "<exact text you sent>"`.
 6. Limits: step ≤ 80 characters, summary ≤ 600 characters (one paragraph), message ≤ 2000
@@ -28,19 +31,23 @@ Avi's Bot Fleet dashboard shows only what you push. Pushing is cheap; it must ne
 7. If a report fails, carry on with the work. Do not retry in a loop and do not start a
    turn later to resend it; your next normal report replaces it.
 8. Config comes from env vars BOT_FLEET_URL, BOT_FLEET_KEY, BOT_FLEET_BOT_ID
-   (+ BOT_FLEET_NAME on Leaf bots). Never print, paste or commit BOT_FLEET_KEY.
+   (+ BOT_FLEET_NAME if you are not in the roster seed, e.g. every Leaf bot).
+   Never print, paste or commit BOT_FLEET_KEY.
 ```
 
 ---
 
 ## Without the script (one curl, same rules)
 
-```sh
+Needs bash (the `<(...)` keeps the key out of the process list). Fixed text only; for
+arbitrary text use `report.sh`, which escapes JSON.
+
+```bash
 curl -sS -o /dev/null --max-time 5 -X POST \
   -H 'Content-Type: application/json' \
   -H @<(printf 'Authorization: Bearer %s\n' "$BOT_FLEET_KEY") \
   --data-binary '{"botId":"'"$BOT_FLEET_BOT_ID"'","status":"working","step":"Building phase 3"}' \
-  "$BOT_FLEET_URL/ingest/v1/status" || true
+  "${BOT_FLEET_URL%/}/ingest/v1/status" || true
 ```
 
 Endpoints: `/ingest/v1/status`, `/ingest/v1/summary`, `/ingest/v1/message`,

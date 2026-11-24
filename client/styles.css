@@ -635,7 +635,7 @@ select {
 .feed-time {
   color: var(--muted);
   font-size: 14px;
-  white-space: nowrap;
+  line-height: 1.25;
   font-variant-numeric: tabular-nums;
 }
 

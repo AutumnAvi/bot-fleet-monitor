@@ -20,6 +20,7 @@ function bot(partial: Partial<BotView> & Pick<BotView, "id">): BotView {
     summaryAt: null,
     unread: 0,
     lastAviReplyAt: null,
+    lastReportAt: null,
     ...partial,
   };
 }
@@ -34,6 +35,13 @@ describe("displayState / stale timer", () => {
     expect(displayState({ status: "working", statusAt: NOW - STALE_AFTER_MS + 1 }, NOW)).toBe("working");
     expect(displayState({ status: "working", statusAt: NOW - STALE_AFTER_MS }, NOW)).toBe("stale");
     expect(bucketOf("stale")).toBe("stuck");
+  });
+
+  it("any later report counts as a sign of life", () => {
+    const old = NOW - STALE_AFTER_MS - 60_000;
+    expect(displayState({ status: "working", statusAt: old, lastReportAt: old }, NOW)).toBe("stale");
+    expect(displayState({ status: "working", statusAt: old, lastReportAt: NOW - 60_000 }, NOW)).toBe("working");
+    expect(displayState({ status: null, statusAt: null, lastReportAt: NOW }, NOW)).toBe("unknown");
   });
 
   it("maps statuses to the four tiles; idle is not an error", () => {
@@ -139,8 +147,16 @@ describe("sanitize", () => {
     expect(cleanLine("\uD800bad", 80)).toBe("�bad");
   });
 
-  it("cleans blocks but keeps paragraphs", () => {
+  it("cleans blocks but keeps paragraphs and indentation", () => {
     expect(cleanBlock("a\r\nb\n\n\n\nc  \n", 100)).toBe("a\nb\n\nc");
+    expect(cleanBlock("List:\n  - one   two\n\t- three", 100)).toBe("List:\n  - one two\n - three");
+  });
+
+  it("keeps joiners and direction marks that real text needs", () => {
+    const family = "\u{1F468}\u200D\u{1F469}\u200D\u{1F467}";
+    expect(cleanLine(`Hi ${family}`, 80)).toBe(`Hi ${family}`);
+    expect(cleanLine("می\u200Cخواهم", 80)).toBe("می\u200Cخواهم");
+    expect(cleanLine("a\u200Eb", 80)).toBe("a\u200Eb");
   });
 
   it("truncates by code point with an ellipsis", () => {

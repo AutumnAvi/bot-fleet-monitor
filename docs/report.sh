@@ -6,7 +6,8 @@
 #   BOT_FLEET_URL     ingest base URL, e.g. https://bot-fleet-monitor.<subdomain>.workers.dev
 #   BOT_FLEET_KEY     this account's write key (work key for work bots, Leaf key for Leaf bots)
 #   BOT_FLEET_BOT_ID  this bot's id (work bots: the Grok Bot id from the roster)
-#   BOT_FLEET_NAME    optional display name; REQUIRED on a Leaf bot's first report
+#   BOT_FLEET_NAME    display name; REQUIRED for any bot not in docs/roster-seed.json
+#                     (every Leaf bot, and work bots added after the seed)
 #   BOT_FLEET_GROUP   optional; work bots: Main | PMs | Asana | Sub-Bots | Unassigned
 #
 # Usage:
@@ -23,7 +24,7 @@ set -u
 warn() { printf 'bot-fleet: %s\n' "$*" >&2; }
 
 usage() {
-  sed -n '12,16p' "$0" >&2
+  sed -n '13,17p' "$0" >&2
   exit 0
 }
 
@@ -49,9 +50,17 @@ command -v curl >/dev/null 2>&1 || {
   exit 0
 }
 
-# Character-aware truncation needs a UTF-8 locale; fall back silently if there is none
-# (the server truncates as well).
-{ export LC_ALL=C.UTF-8; } 2>/dev/null || true
+# Character-aware truncation needs a UTF-8 locale. Without one, cutting by bytes could
+# split a character and the server would reject the report as invalid UTF-8.
+utf8_locale=0
+for l in C.UTF-8 C.utf8 en_US.UTF-8 en_US.utf8; do
+  { export LC_ALL=$l; } 2>/dev/null
+  probe='é'
+  if [ "${#probe}" -eq 1 ]; then
+    utf8_locale=1
+    break
+  fi
+done
 
 # JSON string literal: escape \ " and newlines/tabs, drop other control characters.
 json_str() {
@@ -65,9 +74,9 @@ json_str() {
   printf '"%s"' "$s"
 }
 
-cap() { # cap <text> <max chars>
+cap() { # cap <text> <max chars>; leaves text alone without a UTF-8 locale (server truncates)
   local s=$1 max=$2
-  if [ "${#s}" -gt "$max" ]; then s="${s:0:$((max - 1))}…"; fi
+  if [ "$utf8_locale" -eq 1 ] && [ "${#s}" -gt "$max" ]; then s="${s:0:$((max - 1))}…"; fi
   printf '%s' "$s"
 }
 
@@ -114,6 +123,7 @@ code=$(printf '%s' "$body" | curl -sS -o /dev/null -w '%{http_code}' \
 
 case $code in
   200 | 201) ;;
+  404) warn "unknown bot id for this key; set BOT_FLEET_NAME so it can register (no retry)" ;;
   *) warn "report not delivered (HTTP $code); continuing without retry" ;;
 esac
 exit 0

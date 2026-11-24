@@ -203,6 +203,17 @@ describe("rate limits", () => {
     expect(findBot(await fleet(await sessionCookie()), "work", CHIEF)?.step).toBe(`s${RATE_LIMITS.ingestPerBotPerMinute - 1}`);
   });
 
+  it("a runaway bot cannot use up the key budget and starve other bots", async () => {
+    for (let i = 0; i < RATE_LIMITS.ingestPerKeyPerMinute + 5; i++) {
+      await ingest("status", { botId: CHIEF, status: "working", step: `loop ${i}` });
+    }
+    // Only the 30 accepted reports count against the shared key budget.
+    const res = await ingest("status", { botId: DISK_SAVER, status: "waiting_user", step: "Need Avi" });
+    expect(res.status).toBe(200);
+    const [key] = await sql<{ count: number }>("SELECT count FROM rate_limits WHERE bucket = 'ingest:work'");
+    expect(key?.count).toBe(RATE_LIMITS.ingestPerBotPerMinute + 1);
+  });
+
   it("limits each write key per minute, independently per account", async () => {
     const bots = ["a", "b", "c", "d", "e"];
     for (const id of bots) await ingest("status", { botId: id, name: id, status: "idle" });

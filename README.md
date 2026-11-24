@@ -50,7 +50,7 @@ dashboard never polls, pings or wakes a bot.
 | --- | --- | --- |
 | `waiting_user` | Needs me | Needs me |
 | `working` | Working | Working |
-| `working`, no new report for 10 min | Stale ("No update for 14m · …") | Stuck |
+| `working`, no report of any kind for 10 min | Stale ("No update for 14m · …") | Stuck |
 | `error` | Stuck | Stuck |
 | `idle` | Idle | Idle |
 | `done` | Recorded in the feed as "Finished", then Idle | Idle |
@@ -80,8 +80,9 @@ invalid payload/JSON, `401` bad key, `403` account mismatch, `404` unknown bot w
 30/min per bot; `Retry-After` set). Long text is cut with "…", control/invisible characters are
 removed and obvious credentials are replaced with `[redacted]`. Error bodies never echo keys.
 
-Read API (session cookie required): `GET /api/fleet`, `GET /api/activity?before=<seq>`,
-`GET /api/bots/<work|leaf>/<id>`.
+Read API (session cookie required): `GET /api/fleet[?account=work|leaf]`,
+`GET /api/activity?before=<seq>[&account=work|leaf]`, `GET /api/bots/<work|leaf>/<id>`.
+The optional `account` narrows the activity feed; the bot list always has both accounts.
 
 ## Security notes
 
@@ -100,6 +101,6 @@ Read API (session cookie required): `GET /api/fleet`, `GET /api/activity?before=
 
 ```sh
 npm ci
-npm run check        # lint + typecheck + tests + dry-run build (same as CI)
+npm run check        # the CI steps: lint, typecheck, types check, tests, dry-run build, script syntax
 npm run dev          # local Worker on :8787 (needs .dev.vars, see docs/DEPLOY.md)
 ```

@@ -14,6 +14,7 @@ describe("routing and headers", () => {
     expect((await call("/nope")).status).toBe(404);
     expect((await call("/ingest/v1/status")).status).toBe(405);
     expect((await call("/ingest/v1/bogus", { method: "POST" })).status).toBe(404);
+    expect((await call("/ingest/v1/Status", { method: "POST" })).status).toBe(404);
     expect((await call("/logout")).status).toBe(405);
   });
 

@@ -21,8 +21,9 @@ The monitor is **push-only**. It never asks a bot anything, so it can never cost
    Good keys are rate-limited (120/min per key, 30/min per bot); login is limited to 10
    attempts per IP per 15 minutes.
 6. **The page refreshes from the Worker, not from bots.** While the tab is visible the browser
-   re-reads `/api/fleet` every 30 seconds (one Durable Object read). Hidden tabs do not refresh.
-   This reads stored data only and never reaches a bot.
+   re-reads `/api/fleet` every 30 seconds: two Durable Object calls (session check + fleet read),
+   plus two more for an open bot detail. Hidden tabs do not refresh. This reads stored data only
+   and never reaches a bot.
 
 Rough scale: 35 bots × ~4 reports per turn × a few dozen turns a day is a few thousand small
 requests per day, far inside the Workers / Durable Objects free allowances.
@@ -57,7 +58,8 @@ no Cron Triggers.
 
 ## How to measure ingest volume (without printing secrets)
 
-Every ingest request writes one JSON log line, with no keys, passwords, cookies or bot text:
+Every request to `/ingest/v1/<kind>` writes one JSON log line, with no keys, passwords, cookies
+or bot text:
 
 ```json
 {"evt":"ingest","account":"work","kind":"status","bot":"b0642d5e-…","bytes":96,"result":"ok","status":200}

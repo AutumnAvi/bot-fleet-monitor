@@ -6,12 +6,19 @@ export type DisplayState = StoredStatus | "unknown" | "stale";
 /** The four count tiles / filter chips. */
 export type Bucket = "needs_me" | "working" | "idle" | "stuck";
 
+/** Most recent sign of life: the status report or any later summary/message/reply push. */
+export function lastSeenAt(bot: { statusAt: number | null; lastReportAt?: number | null }): number | null {
+  if (bot.statusAt === null) return null;
+  return Math.max(bot.statusAt, bot.lastReportAt ?? 0);
+}
+
 export function displayState(
-  bot: { status: StoredStatus | null; statusAt: number | null },
+  bot: { status: StoredStatus | null; statusAt: number | null; lastReportAt?: number | null },
   now: number,
 ): DisplayState {
-  if (bot.status === null || bot.statusAt === null) return "unknown";
-  if (bot.status === "working" && now - bot.statusAt >= STALE_AFTER_MS) return "stale";
+  const seen = lastSeenAt(bot);
+  if (bot.status === null || seen === null) return "unknown";
+  if (bot.status === "working" && now - seen >= STALE_AFTER_MS) return "stale";
   return bot.status;
 }
 

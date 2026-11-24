@@ -46,6 +46,7 @@ interface BotRow extends Record<string, SqlStorageValue> {
   summary: string | null;
   summary_at: number | null;
   last_avi_reply_at: number | null;
+  last_report_at: number | null;
   unread: number;
 }
 
@@ -67,6 +68,7 @@ CREATE TABLE IF NOT EXISTS bots (
   summary TEXT,
   summary_at INTEGER,
   last_avi_reply_at INTEGER,
+  last_report_at INTEGER,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL,
   PRIMARY KEY (account, id)
@@ -87,6 +89,7 @@ CREATE TABLE IF NOT EXISTS events (
   detail TEXT,
   at INTEGER NOT NULL
 );
+CREATE INDEX IF NOT EXISTS events_by_account ON events (account, seq);
 CREATE TABLE IF NOT EXISTS sessions (
   token_hash TEXT PRIMARY KEY,
   password_fp TEXT NOT NULL,
@@ -256,8 +259,8 @@ export class FleetStore extends DurableObject<Env> {
     const now = Date.now();
     this.pruneIfDue(now);
 
-    const keyLimit = this.hitRateLimit(`ingest:${account}`, RATE_LIMITS.ingestPerKeyPerMinute, 60_000, now);
-    if (!keyLimit.ok) return rateLimited(keyLimit.retryAfterSec);
+    // Per-bot first: a report the bot limit drops must not use up the shared key
+    // budget, or one runaway bot could starve every other bot on the account.
     const botLimit = this.hitRateLimit(
       `ingest:${account}:${payload.botId}`,
       RATE_LIMITS.ingestPerBotPerMinute,
@@ -265,6 +268,8 @@ export class FleetStore extends DurableObject<Env> {
       now,
     );
     if (!botLimit.ok) return rateLimited(botLimit.retryAfterSec);
+    const keyLimit = this.hitRateLimit(`ingest:${account}`, RATE_LIMITS.ingestPerKeyPerMinute, 60_000, now);
+    if (!keyLimit.ok) return rateLimited(keyLimit.retryAfterSec);
 
     let result: IngestResult = { ok: true, created: false };
     this.ctx.storage.transactionSync(() => {
@@ -340,6 +345,14 @@ export class FleetStore extends DurableObject<Env> {
           break;
         }
       }
+      // Any accepted report counts as a sign of life for the stale-working timer.
+      this.sql.exec(
+        "UPDATE bots SET last_report_at = ?, updated_at = ? WHERE account = ? AND id = ?",
+        now,
+        now,
+        account,
+        bot.id,
+      );
       result = { ok: true, created: resolved.created };
     });
     return result;
@@ -414,8 +427,11 @@ export class FleetStore extends DurableObject<Env> {
       short,
       now,
     );
+    // Trim per account, so one account's traffic can never push out the other's history.
     this.sql.exec(
-      "DELETE FROM events WHERE seq <= (SELECT MAX(seq) FROM events) - ?",
+      `DELETE FROM events WHERE account = ?1 AND seq <= (
+         SELECT seq FROM events WHERE account = ?1 ORDER BY seq DESC LIMIT 1 OFFSET ?2)`,
+      account,
       LIMITS.eventsRetained,
     );
   }
@@ -426,7 +442,7 @@ export class FleetStore extends DurableObject<Env> {
     return this.sql
       .exec<BotRow>(
         `SELECT b.account, b.id, b.name, b.grp, b.sort_index, b.status, b.step, b.status_at,
-                b.summary, b.summary_at, b.last_avi_reply_at,
+                b.summary, b.summary_at, b.last_avi_reply_at, b.last_report_at,
                 (SELECT COUNT(*) FROM messages m WHERE m.account = b.account AND m.bot_id = b.id) AS unread
          FROM bots b ${where}
          ORDER BY b.sort_index, b.name COLLATE NOCASE`,
@@ -436,16 +452,21 @@ export class FleetStore extends DurableObject<Env> {
       .map(toBotView);
   }
 
-  fleet(): FleetResponse {
+  /** All bots, plus the first activity page (optionally for one account only). */
+  fleet(activityAccount: Account | null = null): FleetResponse {
     return {
       now: Date.now(),
       staleAfterMs: STALE_AFTER_MS,
       bots: this.botViews(),
-      activity: this.activity(null),
+      activity: this.activity(null, activityAccount),
     };
   }
 
-  activity(before: number | null, limit: number = LIMITS.activityPageSize): ActivityPage {
+  activity(
+    before: number | null,
+    account: Account | null = null,
+    limit: number = LIMITS.activityPageSize,
+  ): ActivityPage {
     const size = Math.max(1, Math.min(limit, 100));
     const rows = this.sql
       .exec<{
@@ -459,11 +480,12 @@ export class FleetStore extends DurableObject<Env> {
       }>(
         `SELECT e.seq, e.at, e.account, e.bot_id, e.kind, e.detail, b.name
          FROM events e LEFT JOIN bots b ON b.account = e.account AND b.id = e.bot_id
-         WHERE (?1 IS NULL OR e.seq < ?1)
+         WHERE (?1 IS NULL OR e.seq < ?1) AND (?3 IS NULL OR e.account = ?3)
          ORDER BY e.seq DESC
          LIMIT ?2`,
         before,
         size + 1,
+        account,
       )
       .toArray();
     const items: ActivityItem[] = rows.slice(0, size).map((row) => ({
@@ -483,7 +505,7 @@ export class FleetStore extends DurableObject<Env> {
     const row = this.sql
       .exec<BotRow>(
         `SELECT b.account, b.id, b.name, b.grp, b.sort_index, b.status, b.step, b.status_at,
-                b.summary, b.summary_at, b.last_avi_reply_at,
+                b.summary, b.summary_at, b.last_avi_reply_at, b.last_report_at,
                 (SELECT COUNT(*) FROM messages m WHERE m.account = b.account AND m.bot_id = b.id) AS unread
          FROM bots b WHERE b.account = ? AND b.id = ?`,
         account,
@@ -526,5 +548,6 @@ function toBotView(row: BotRow): BotView {
     summaryAt: row.summary_at,
     unread: row.unread,
     lastAviReplyAt: row.last_avi_reply_at,
+    lastReportAt: row.last_report_at,
   };
 }

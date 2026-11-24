@@ -3,7 +3,8 @@ import { beforeEach, describe, expect, it } from "vitest";
 import seed from "../docs/roster-seed.json";
 import { seedVersion } from "../src/fleet-store";
 import { buildFleetView } from "../src/shared/fleet-view";
-import { LIMITS, STALE_AFTER_MS, type ActivityPage } from "../src/shared/model";
+import { LIMITS, STALE_AFTER_MS, type ActivityPage, type FleetResponse } from "../src/shared/model";
+import { LEAF_KEY } from "./fixtures";
 import { bucketOf, displayState } from "../src/shared/status";
 import { CHIEF, DISK_SAVER, INTERNAL_DAM, call, findBot, fleet, freshStore, getJson, ingest, sessionCookie, sql } from "./helpers";
 
@@ -57,7 +58,8 @@ describe("stale working timer", () => {
     if (!chief) throw new Error("missing");
     expect(displayState(chief, data.now)).toBe("working");
 
-    await sql("UPDATE bots SET status_at = ? WHERE id = ?", Date.now() - STALE_AFTER_MS - 1000, CHIEF);
+    const silentSince = Date.now() - STALE_AFTER_MS - 1000;
+    await sql("UPDATE bots SET status_at = ?, last_report_at = ? WHERE id = ?", silentSince, silentSince, CHIEF);
     data = await fleet(cookie);
     chief = findBot(data, "work", CHIEF);
     if (!chief) throw new Error("missing");
@@ -72,6 +74,20 @@ describe("stale working timer", () => {
     chief = findBot(data, "work", CHIEF);
     if (!chief) throw new Error("missing");
     expect(displayState(chief, data.now)).toBe("working");
+  });
+
+  it("any report (message, summary, reply mark) keeps a working bot from going stale", async () => {
+    const cookie = await sessionCookie();
+    await ingest("status", { botId: CHIEF, status: "working", step: "Long build" });
+    await sql("UPDATE bots SET status_at = ?, last_report_at = ? WHERE id = ?", Date.now() - 15 * 60_000, Date.now() - 15 * 60_000, CHIEF);
+    let data = await fleet(cookie);
+    expect(displayState(findBot(data, "work", CHIEF)!, data.now)).toBe("stale");
+
+    await ingest("message", { botId: CHIEF, text: "Still building, 80% done" });
+    data = await fleet(cookie);
+    const chief = findBot(data, "work", CHIEF)!;
+    expect(displayState(chief, data.now)).toBe("working");
+    expect(chief.step).toBe("Long build");
   });
 
   it("idle and waiting bots never go stale", async () => {
@@ -126,6 +142,35 @@ describe("activity feed", () => {
 
     expect((await call("/api/activity?before=abc", { headers: { Cookie: cookie } })).status).toBe(400);
     expect((await call("/api/activity?before=-1", { headers: { Cookie: cookie } })).status).toBe(400);
+  });
+
+  it("filters the feed by account when asked", async () => {
+    const cookie = await sessionCookie();
+    await ingest("status", { botId: CHIEF, status: "working", step: "Work thing" });
+    await ingest("status", { botId: "leaf-1", name: "Leaf One", status: "working", step: "Leaf thing" }, LEAF_KEY);
+    const both = (await getJson<FleetResponse>("/api/fleet", cookie)).activity.items.map((e) => e.account);
+    expect(both).toEqual(["leaf", "work"]);
+    const leaf = await getJson<FleetResponse>("/api/fleet?account=leaf", cookie);
+    expect(leaf.activity.items.map((e) => e.detail)).toEqual(["Leaf thing"]);
+    expect(leaf.bots.some((b) => b.account === "work")).toBe(true); // the bot list keeps both accounts
+    const work = await getJson<ActivityPage>(`/api/activity?before=999999&account=work`, cookie);
+    expect(work.items.map((e) => e.detail)).toEqual(["Work thing"]);
+    expect((await call("/api/fleet?account=evil", { headers: { Cookie: cookie } })).status).toBe(400);
+  });
+
+  it("keeps a bounded number of events per account, so one account cannot erase the other's history", async () => {
+    await ingest("status", { botId: CHIEF, status: "working", step: "work event" });
+    await sql(
+      `WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < ?)
+       INSERT INTO events (account, bot_id, kind, detail, at) SELECT 'leaf', 'leaf-x', 'working', 'x', 0 FROM n`,
+      LIMITS.eventsRetained + 50,
+    );
+    await ingest("status", { botId: "leaf-x", name: "Leaf X", status: "error", step: "boom" }, LEAF_KEY);
+    const counts = await sql<{ account: string; n: number }>("SELECT account, COUNT(*) AS n FROM events GROUP BY account ORDER BY account");
+    expect(counts).toEqual([
+      { account: "leaf", n: LIMITS.eventsRetained },
+      { account: "work", n: 1 },
+    ]);
   });
 
   it("keeps a bounded number of events", async () => {

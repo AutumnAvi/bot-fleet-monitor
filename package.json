@@ -15,7 +15,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p client/tsconfig.json && tsc --noEmit -p tsconfig.node.json",
     "lint": "eslint . --max-warnings 0",
     "test": "npm run build:client && vitest run",
-    "check": "npm run lint && npm run typecheck && npm test && npm run build",
+    "check": "npm run lint && npm run typecheck && wrangler types --check && npm test && npm run build && bash -n docs/report.sh",
     "hash-password": "node scripts/hash-password.mjs"
   },
   "devDependencies": {

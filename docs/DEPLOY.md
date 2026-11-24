@@ -7,6 +7,12 @@ account authenticates. A custom domain is not needed; `workers.dev` is fine.
 
 The secrets already exist outside the repo in `/workspace/bot-fleet-monitor-secrets/`
 (mode 700, files mode 600). See the `README.md` in that folder. Never commit or print them.
+To create them on another machine, or to rotate all of them (prints file names only):
+
+```sh
+mkdir -m 700 -p /workspace/bot-fleet-monitor-secrets
+node scripts/gen-secrets.mjs --dir /workspace/bot-fleet-monitor-secrets   # add --force to rotate
+```
 
 ## 1. Authenticate (pick one)
 
@@ -60,7 +66,8 @@ The first deploy applies the Durable Object migration `v1` (SQLite-backed `Fleet
 The work-account roster from `docs/roster-seed.json` is loaded automatically the first time the
 Durable Object starts (any request that reaches it, e.g. the first login). This is the one-time
 migration; nothing to run by hand. If `docs/roster-seed.json` changes later, redeploy: the seed
-re-applies once (adds bots, refreshes names/groups/order, never touches status). Leaf starts empty.
+re-applies once (adds bots, refreshes names/groups/order, never touches status). Removing a bot
+from the seed does not delete it from the dashboard (v1 never deletes bot data). Leaf starts empty.
 
 ```sh
 URL=$(cat "$S/ingest-url")
@@ -75,8 +82,9 @@ Then open the URL, sign in with the password from `$S/dashboard-password`, and c
 
 ## 6. Roll out to bots
 
-Give each bot `BOT_FLEET_URL`, its account's `BOT_FLEET_KEY`, its `BOT_FLEET_BOT_ID` (and
-`BOT_FLEET_NAME` for Leaf bots), and the rule in `docs/BOT-RULE.md`.
+Give each bot `BOT_FLEET_URL`, its account's `BOT_FLEET_KEY`, its `BOT_FLEET_BOT_ID`, plus
+`BOT_FLEET_NAME` for any bot not in `docs/roster-seed.json` (all Leaf bots, and work bots added
+after the seed), and the rule in `docs/BOT-RULE.md`.
 
 ## Local development
 

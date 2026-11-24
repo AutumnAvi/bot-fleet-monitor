@@ -71,6 +71,8 @@ export interface BotView {
   /** Message copies received since Avi's last reply. */
   unread: number;
   lastAviReplyAt: number | null;
+  /** Server time (ms) of the last accepted report of any kind (status, summary, message, reply mark). */
+  lastReportAt: number | null;
 }
 
 export interface ActivityItem {
