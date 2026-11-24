@@ -1,0 +1,196 @@
+import { describe, expect, it } from "vitest";
+import { REDACTED, cleanBlock, cleanLine, redactSecrets, truncate } from "../src/lib/sanitize";
+import { ClientError, parseIngestPayload } from "../src/lib/validate";
+import { activityText, buildFleetView, openUrl, stepText } from "../src/shared/fleet-view";
+import { STALE_AFTER_MS, type BotView } from "../src/shared/model";
+import { bucketOf, displayState } from "../src/shared/status";
+import { formatClock, formatFull, formatRelative } from "../src/shared/time";
+
+const NOW = Date.UTC(2026, 10, 24, 18, 30, 0); // 8:30 PM in Asia/Hebron (UTC+2)
+
+function bot(partial: Partial<BotView> & Pick<BotView, "id">): BotView {
+  return {
+    account: "work",
+    name: partial.id,
+    group: "Main",
+    sortIndex: 0,
+    status: null,
+    step: null,
+    statusAt: null,
+    summaryAt: null,
+    unread: 0,
+    lastAviReplyAt: null,
+    ...partial,
+  };
+}
+
+describe("displayState / stale timer", () => {
+  it("never-reported bots are unknown and count as idle (no fake working)", () => {
+    expect(displayState({ status: null, statusAt: null }, NOW)).toBe("unknown");
+    expect(bucketOf("unknown")).toBe("idle");
+  });
+
+  it("working stays working until exactly 10 minutes, then is stale/stuck", () => {
+    expect(displayState({ status: "working", statusAt: NOW - STALE_AFTER_MS + 1 }, NOW)).toBe("working");
+    expect(displayState({ status: "working", statusAt: NOW - STALE_AFTER_MS }, NOW)).toBe("stale");
+    expect(bucketOf("stale")).toBe("stuck");
+  });
+
+  it("maps statuses to the four tiles; idle is not an error", () => {
+    expect(bucketOf("waiting_user")).toBe("needs_me");
+    expect(bucketOf("working")).toBe("working");
+    expect(bucketOf("idle")).toBe("idle");
+    expect(bucketOf("error")).toBe("stuck");
+    expect(displayState({ status: "idle", statusAt: NOW - 86_400_000 }, NOW)).toBe("idle");
+    expect(displayState({ status: "error", statusAt: NOW - 86_400_000 }, NOW)).toBe("error");
+  });
+});
+
+describe("fleet view", () => {
+  const bots: BotView[] = [
+    bot({ id: "chief", name: "Chief", group: "Main", status: "waiting_user", step: "Approve merge", statusAt: NOW - 60_000 }),
+    bot({ id: "dam", name: "Internal DAM", group: "PMs", status: "waiting_user", step: "Review access", statusAt: NOW - 180_000 }),
+    bot({ id: "copy", name: "Copy Library PM", group: "PMs", sortIndex: 1, status: "working", step: "Phase 3", statusAt: NOW - 60_000 }),
+    bot({ id: "stale", name: "Stale One", group: "Asana", status: "working", step: "Syncing", statusAt: NOW - STALE_AFTER_MS - 1 }),
+    bot({ id: "err", name: "Broken", group: "Sub-Bots", status: "error", step: "Token expired", statusAt: NOW }),
+    bot({ id: "quiet", name: "Quiet", group: "Main", sortIndex: 2 }),
+    bot({ id: "leafy", account: "leaf", name: "Leaf Reports", group: "Leaf account", status: "working", step: "Report", statusAt: NOW }),
+  ];
+  const view = (o: Partial<Parameters<typeof buildFleetView>[1]> = {}) =>
+    buildFleetView(bots, { account: "both", filter: "all", query: "", now: NOW, ...o });
+
+  it("counts tiles over the selected accounts", () => {
+    expect(view().counts).toEqual({ needs_me: 2, working: 2, idle: 1, stuck: 2 });
+    expect(view({ account: "work" }).counts).toEqual({ needs_me: 2, working: 1, idle: 1, stuck: 2 });
+    expect(view({ account: "leaf" }).counts).toEqual({ needs_me: 0, working: 1, idle: 0, stuck: 0 });
+  });
+
+  it("pins Needs me on top (most recent first) and keeps those bots out of their groups", () => {
+    const v = view();
+    expect(v.needsMe?.map((r) => r.bot.id)).toEqual(["chief", "dam"]);
+    expect(v.groups.map((g) => g.name)).toEqual(["Main", "PMs", "Asana", "Sub-Bots", "Leaf account"]);
+    expect(v.groups.find((g) => g.name === "Main")?.rows.map((r) => r.bot.id)).toEqual(["quiet"]);
+    expect(v.groups.find((g) => g.name === "PMs")?.rows.map((r) => r.bot.id)).toEqual(["copy"]);
+  });
+
+  it("shows Unassigned only when it has bots, and an empty Leaf group with a note", () => {
+    const withUnassigned = buildFleetView([...bots, bot({ id: "u", group: "Unassigned" })], {
+      account: "both",
+      filter: "all",
+      query: "",
+      now: NOW,
+    });
+    expect(withUnassigned.groups.map((g) => g.name)).toContain("Unassigned");
+    const noLeaf = buildFleetView(bots.filter((b) => b.account === "work"), { account: "both", filter: "all", query: "", now: NOW });
+    const leafGroup = noLeaf.groups.find((g) => g.name === "Leaf account");
+    expect(leafGroup?.rows).toEqual([]);
+    expect(leafGroup?.emptyText).toMatch(/No Leaf-account bots yet/);
+  });
+
+  it("filters by status chip, search text and account", () => {
+    expect(view({ filter: "stuck" }).groups.flatMap((g) => g.rows.map((r) => r.bot.id))).toEqual(["stale", "err"]);
+    expect(view({ filter: "stuck" }).needsMe).toBeNull();
+    expect(view({ filter: "needs_me" }).groups).toEqual([]);
+    expect(view({ query: "library" }).groups.flatMap((g) => g.rows.map((r) => r.bot.id))).toEqual(["copy"]);
+    expect(view({ query: "approve" }).needsMe?.map((r) => r.bot.id)).toEqual(["chief"]);
+    expect(view({ account: "work" }).groups.map((g) => g.name)).not.toContain("Leaf account");
+    expect(view({ account: "leaf" }).groups.map((g) => g.name)).toEqual(["Leaf account"]);
+    expect(view({ query: "zzz" }).shown).toBe(0);
+  });
+
+  it("Open deep link exists only for work bots and encodes the id", () => {
+    expect(openUrl({ account: "work", id: "b0642d5e-4aaf" })).toBe("grokbot://app/v1/prompt?id=b0642d5e-4aaf");
+    expect(openUrl({ account: "work", id: "a:b" })).toBe("grokbot://app/v1/prompt?id=a%3Ab");
+    expect(openUrl({ account: "leaf", id: "x" })).toBeNull();
+    expect(view().groups.find((g) => g.name === "Leaf account")?.rows[0]?.openUrl).toBeNull();
+  });
+
+  it("uses honest copy for unknown and stale bots", () => {
+    expect(stepText(bot({ id: "x" }), "unknown", NOW)).toBe("No report yet");
+    expect(stepText(bot({ id: "x", step: "Syncing", statusAt: NOW - 14 * 60_000 }), "stale", NOW)).toBe(
+      "No update for 14m · Syncing",
+    );
+    expect(activityText({ kind: "done", detail: "Build" })).toBe("Finished: Build");
+    expect(activityText({ kind: "avi_replied", detail: null })).toBe("You replied");
+  });
+});
+
+describe("Asia/Hebron time formatting", () => {
+  it("shows clock times in Hebron (UTC+2 in November)", () => {
+    expect(formatClock(Date.UTC(2026, 10, 24, 18, 2), NOW)).toBe("8:02 PM");
+    expect(formatClock(Date.UTC(2026, 10, 23, 18, 2), NOW)).toBe("Nov 23, 8:02 PM");
+    // 23:30 UTC is already the next day in Hebron.
+    expect(formatClock(Date.UTC(2026, 10, 24, 23, 30), Date.UTC(2026, 10, 25, 6, 0))).toBe("1:30 AM");
+    expect(formatFull(Date.UTC(2026, 10, 24, 18, 2))).toMatch(/Tue, Nov 24, 8:02\sPM GMT\+2/);
+  });
+
+  it("formats relative times", () => {
+    expect(formatRelative(NOW - 10_000, NOW)).toBe("just now");
+    expect(formatRelative(NOW + 60_000, NOW)).toBe("just now");
+    expect(formatRelative(NOW - 4 * 60_000, NOW)).toBe("4m ago");
+    expect(formatRelative(NOW - 3 * 3_600_000, NOW)).toBe("3h ago");
+    expect(formatRelative(NOW - 2 * 86_400_000, NOW)).toBe("2d ago");
+  });
+});
+
+describe("sanitize", () => {
+  it("cleans single lines", () => {
+    expect(cleanLine("  a\tb\n\nc\u0007‮d​  ", 80)).toBe("a b cd");
+    expect(cleanLine("\uD800bad", 80)).toBe("�bad");
+  });
+
+  it("cleans blocks but keeps paragraphs", () => {
+    expect(cleanBlock("a\r\nb\n\n\n\nc  \n", 100)).toBe("a\nb\n\nc");
+  });
+
+  it("truncates by code point with an ellipsis", () => {
+    expect(truncate("abcdef", 4)).toBe("abc…");
+    expect(truncate("😀😀😀", 2)).toBe("😀…");
+    expect(truncate("abc", 3)).toBe("abc");
+  });
+
+  it("redacts credential-looking strings", () => {
+    const samples = [
+      "ghp_0123456789abcdefghijABCDEFGHIJ",
+      "github_pat_11ABCDEFG0123456789_abcdefghijklmnop",
+      "sk-ant-api03-abcdefghijklmnopqrstuvwxyz",
+      "xoxb-1234567890-abcdefghij",
+      "AKIAABCDEFGHIJKLMNOP",
+      "bfw_abcdefghijklmnopqrstuvwxyz012345",
+      "-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----",
+    ];
+    for (const s of samples) expect(redactSecrets(`x ${s} y`)).toBe(`x ${REDACTED} y`);
+    expect(redactSecrets("Authorization: Bearer abcdefghijklmnop1234")).toBe(`Authorization: Bearer ${REDACTED}`);
+    expect(redactSecrets("plain words stay")).toBe("plain words stay");
+  });
+});
+
+describe("payload validation", () => {
+  it("returns typed, cleaned payloads", () => {
+    expect(parseIngestPayload("status", "work", { botId: " abc ", status: "done", step: " Shipped " })).toEqual({
+      kind: "status",
+      botId: "abc",
+      status: "done",
+      step: "Shipped",
+    });
+    expect(parseIngestPayload("avi-replied", "leaf", { botId: "x", group: "Leaf account" })).toEqual({
+      kind: "avi-replied",
+      botId: "x",
+      group: "Leaf account",
+    });
+  });
+
+  it("throws ClientError with a status code", () => {
+    const err = (() => {
+      try {
+        parseIngestPayload("status", "leaf", { botId: "x", status: "idle", account: "work" });
+      } catch (e) {
+        return e;
+      }
+      return null;
+    })();
+    expect(err).toBeInstanceOf(ClientError);
+    expect((err as ClientError).status).toBe(403);
+    expect(() => parseIngestPayload("status", "work", { botId: "x", status: "idle", name: "   " })).toThrow(ClientError);
+  });
+});
