@@ -1,0 +1,350 @@
+{
+  "accounts": [
+    {
+      "id": "work",
+      "label": "Work account"
+    },
+    {
+      "id": "leaf",
+      "label": "Leaf account"
+    }
+  ],
+  "groups": [
+    "Main",
+    "PMs",
+    "Asana",
+    "Sub-Bots",
+    "Unassigned",
+    "Leaf account"
+  ],
+  "notes": [
+    "Work-account roster snapshotted from /home/box/agent-data/agents and sidebarSections on 2026-11-24 (Asia/Hebron).",
+    "Chief (b0642d5e-...) is the primary bot and was not in a sidebar section; seeded into Main.",
+    "Disk Saver was unsectioned; seeded as Unassigned.",
+    "Leaf-account bots are not on this box. Do not invent them. Upsert Leaf bots on first authenticated ingest (Leaf write key) into group \"Leaf account\".",
+    "Open deep links (grokbot://app/v1/prompt?id=<bot-id>) are for work-account bots only. Hide or disable Open on Leaf rows.",
+    "Stale sidebar IDs with no on-disk profile were omitted."
+  ],
+  "bots": [
+    {
+      "id": "b0642d5e-4aaf-41e7-9c15-637f06e15398",
+      "name": "Chief \u00b7 Chief of Staff",
+      "title": "",
+      "group": "Main",
+      "account": "work",
+      "pinned": true,
+      "avatarColor": "black",
+      "avatarShape": "blob"
+    },
+    {
+      "id": "ad7362eb-7f90-4df2-9332-1e9d8c9f0d9e",
+      "name": "dr eggbot",
+      "title": "",
+      "group": "Main",
+      "account": "work",
+      "pinned": false,
+      "avatarColor": "red",
+      "avatarShape": "teardrop"
+    },
+    {
+      "id": "493712e0-c423-43fd-afc8-cfd575ae16e7",
+      "name": "Team Tools Tracker",
+      "title": "",
+      "group": "Main",
+      "account": "work",
+      "pinned": false,
+      "avatarColor": "",
+      "avatarShape": ""
+    },
+    {
+      "id": "8ae1b895-8d19-4abb-b368-0de96437f749",
+      "name": "Zapier Expert Builder",
+      "title": "",
+      "group": "Main",
+      "account": "work",
+      "pinned": false,
+      "avatarColor": "orange",
+      "avatarShape": "wedge"
+    },
+    {
+      "id": "c090e345-a506-4e29-9c66-f1f5b408c473",
+      "name": "Accounts Management",
+      "title": "",
+      "group": "PMs",
+      "account": "work",
+      "pinned": true,
+      "avatarColor": "orange",
+      "avatarShape": "pebble"
+    },
+    {
+      "id": "e625ec7f-03fc-47c4-afcc-e8134a682b44",
+      "name": "Asana Recreation Project Manager",
+      "title": "",
+      "group": "PMs",
+      "account": "work",
+      "pinned": true,
+      "avatarColor": "blue",
+      "avatarShape": "star"
+    },
+    {
+      "id": "aa6191d6-223a-4aa1-a9c6-1de99b3ee43b",
+      "name": "Brand Standards PM",
+      "title": "",
+      "group": "PMs",
+      "account": "work",
+      "pinned": false,
+      "avatarColor": "",
+      "avatarShape": ""
+    },
+    {
+      "id": "09d4e1a2-8c46-45f1-9c1e-6a9da44127d1",
+      "name": "Calendly Rebuild PM",
+      "title": "",
+      "group": "PMs",
+      "account": "work",
+      "pinned": false,
+      "avatarColor": "yellow",
+      "avatarShape": "cloud"
+    },
+    {
+      "id": "75096179-855f-4859-a4b8-918e0456d9ba",
+      "name": "Comment Reply App",
+      "title": "",
+      "group": "PMs",
+      "account": "work",
+      "pinned": false,
+      "avatarColor": "",
+      "avatarShape": ""
+    },
+    {
+      "id": "5dcc102d-7c72-473d-b57a-77240306d56a",
+      "name": "Copy Library PM",
+      "title": "",
+      "group": "PMs",
+      "account": "work",
+      "pinned": false,
+      "avatarColor": "",
+      "avatarShape": ""
+    },
+    {
+      "id": "11c79271-23cb-4a59-a79e-7bd71c96d55e",
+      "name": "Dropbox Rebuild PM",
+      "title": "",
+      "group": "PMs",
+      "account": "work",
+      "pinned": false,
+      "avatarColor": "",
+      "avatarShape": ""
+    },
+    {
+      "id": "e45a9e35-3da8-4834-b59b-e68c34271a84",
+      "name": "Dropbox SOP PM",
+      "title": "",
+      "group": "PMs",
+      "account": "work",
+      "pinned": false,
+      "avatarColor": "",
+      "avatarShape": ""
+    },
+    {
+      "id": "3337dea2-deeb-4a6e-8df8-d72f63110175",
+      "name": "Event Kickoff PM",
+      "title": "",
+      "group": "PMs",
+      "account": "work",
+      "pinned": false,
+      "avatarColor": "",
+      "avatarShape": ""
+    },
+    {
+      "id": "cd9f25f2-77fb-4787-b74e-092feb9b2757",
+      "name": "High Approval",
+      "title": "",
+      "group": "PMs",
+      "account": "work",
+      "pinned": false,
+      "avatarColor": "",
+      "avatarShape": ""
+    },
+    {
+      "id": "5fb801a1-82ea-4043-96da-756990389d89",
+      "name": "Internal DAM",
+      "title": "",
+      "group": "PMs",
+      "account": "work",
+      "pinned": true,
+      "avatarColor": "cyan",
+      "avatarShape": "tablet"
+    },
+    {
+      "id": "432b8210-0273-42c4-bdbe-a35b2f314f5f",
+      "name": "Isaiah Approval",
+      "title": "",
+      "group": "PMs",
+      "account": "work",
+      "pinned": false,
+      "avatarColor": "",
+      "avatarShape": ""
+    },
+    {
+      "id": "df8646f5-0611-444f-a0b0-cf75ffc83c64",
+      "name": "Isaiah Overview PM",
+      "title": "",
+      "group": "PMs",
+      "account": "work",
+      "pinned": false,
+      "avatarColor": "",
+      "avatarShape": ""
+    },
+    {
+      "id": "62d33226-2c18-4a18-9c78-044fd80eb5d0",
+      "name": "Link Shortener PM",
+      "title": "",
+      "group": "PMs",
+      "account": "work",
+      "pinned": false,
+      "avatarColor": "",
+      "avatarShape": ""
+    },
+    {
+      "id": "4bd2bdb5-d553-4594-a970-8147838c519a",
+      "name": "Marketing Portal PM",
+      "title": "",
+      "group": "PMs",
+      "account": "work",
+      "pinned": false,
+      "avatarColor": "",
+      "avatarShape": ""
+    },
+    {
+      "id": "e416cdd8-afc2-4df9-9590-c96d9c2403b3",
+      "name": "Marketing Request Forms",
+      "title": "",
+      "group": "PMs",
+      "account": "work",
+      "pinned": false,
+      "avatarColor": "",
+      "avatarShape": ""
+    },
+    {
+      "id": "54dae044-fcbd-4062-8100-f1f3610895eb",
+      "name": "Matter Rebuild PM",
+      "title": "",
+      "group": "PMs",
+      "account": "work",
+      "pinned": false,
+      "avatarColor": "",
+      "avatarShape": ""
+    },
+    {
+      "id": "1818fae3-72b9-4b7c-bbe0-10b9744fc903",
+      "name": "Session Monitor",
+      "title": "",
+      "group": "PMs",
+      "account": "work",
+      "pinned": true,
+      "avatarColor": "",
+      "avatarShape": ""
+    },
+    {
+      "id": "ff7bf7db-fa73-438d-8e28-74816a58486c",
+      "name": "Asana Checker",
+      "title": "",
+      "group": "Asana",
+      "account": "work",
+      "pinned": false,
+      "avatarColor": "",
+      "avatarShape": ""
+    },
+    {
+      "id": "2cd3b9ff-3d34-491d-bffa-918c300a393c",
+      "name": "Asana Manager \u00b7 Asana Coordinator",
+      "title": "",
+      "group": "Asana",
+      "account": "work",
+      "pinned": true,
+      "avatarColor": "",
+      "avatarShape": ""
+    },
+    {
+      "id": "cb7604eb-dcb2-4788-bfb0-d459adc11de2",
+      "name": "Asana Migrate",
+      "title": "",
+      "group": "Asana",
+      "account": "work",
+      "pinned": false,
+      "avatarColor": "",
+      "avatarShape": ""
+    },
+    {
+      "id": "798be72a-2731-48c2-8f8c-5fd25a3060e1",
+      "name": "Asana NEW Hands",
+      "title": "",
+      "group": "Asana",
+      "account": "work",
+      "pinned": false,
+      "avatarColor": "",
+      "avatarShape": ""
+    },
+    {
+      "id": "9b993a93-b302-4533-9768-70840860a79d",
+      "name": "Asana OLD Eyes",
+      "title": "",
+      "group": "Asana",
+      "account": "work",
+      "pinned": false,
+      "avatarColor": "",
+      "avatarShape": ""
+    },
+    {
+      "id": "079e6a11-7f48-4f09-9ea5-a2c61324b85d",
+      "name": "Claude Prompter",
+      "title": "",
+      "group": "Sub-Bots",
+      "account": "work",
+      "pinned": false,
+      "avatarColor": "",
+      "avatarShape": ""
+    },
+    {
+      "id": "336f7c0f-b24a-441b-a08b-38e4554cec95",
+      "name": "Cursor Prompter",
+      "title": "",
+      "group": "Sub-Bots",
+      "account": "work",
+      "pinned": false,
+      "avatarColor": "red",
+      "avatarShape": "blob"
+    },
+    {
+      "id": "6e53bbdd-925b-47f8-8e5a-fc33f82f13d7",
+      "name": "Grok Bot Expert",
+      "title": "",
+      "group": "Sub-Bots",
+      "account": "work",
+      "pinned": false,
+      "avatarColor": "brown",
+      "avatarShape": "blob"
+    },
+    {
+      "id": "4485f030-b578-4725-994d-54a8f52a471b",
+      "name": "Researcher",
+      "title": "",
+      "group": "Sub-Bots",
+      "account": "work",
+      "pinned": false,
+      "avatarColor": "yellow",
+      "avatarShape": "wedge"
+    },
+    {
+      "id": "2714e293-5a0e-439a-89af-ebe0970b8077",
+      "name": "Disk Saver",
+      "title": "",
+      "group": "Unassigned",
+      "account": "work",
+      "pinned": false,
+      "avatarColor": "red",
+      "avatarShape": "hex"
+    }
+  ]
+}
