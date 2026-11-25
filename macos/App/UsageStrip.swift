@@ -11,7 +11,7 @@ struct UsageStrip: View {
     @Environment(\.widthClass) private var width
 
     var body: some View {
-        let grid = Self.rows(UsageTile.all(state, now: now), maxColumns: width == .narrow ? 4 : width == .regular ? 6 : 10)
+        let grid = Self.rows(UsageTile.all(state, now: now), maxColumns: width == .narrow ? 2 : width == .regular ? 4 : 10)
         VStack(spacing: 0) {
             ForEach(Array(grid.enumerated()), id: \.offset) { index, row in
                 if index > 0 { Rectangle().fill(Theme.line).frame(height: 1) }
@@ -45,13 +45,11 @@ struct UsageStrip: View {
     }
 }
 
-/// One labelled thin bar inside a tile: "5h ▬▬ 62%", "Cursor Models ▬▬ 45% used".
+/// One thin bar inside a tile (Claude 5h and week, Cursor's three meters); its text is in the tooltip.
 private struct UsageMeterLine {
-    let label: String
     let fraction: Double?
     let tone: Tone
-    let value: String
-    let short: String  // what narrow tiles show instead of `value`
+    /// "5-hour · 62% left · resets Wed, Nov 25, 3:49 PM".
     let help: String
 }
 
@@ -67,7 +65,6 @@ private struct UsageTile {
     var fraction: Double?  // the single bar: wide tiles, and tiles without labelled meters
     var tone: Tone = .gray
     var meters: [UsageMeterLine] = []
-    var longLabels = false  // Cursor meter labels need a wider label column
     var notes: [String] = []
     var grokAccount: FleetAccount?
     var grokUsage: GrokUsage?
@@ -102,9 +99,9 @@ private struct UsageTile {
     static func claude(_ a: UsageAccount, now: Double) -> UsageTile {
         let five = Usage.fiveHour(a)
         var t = percentLeft(a, meter: five ?? Usage.primary(a), now: now)
-        if let five { t.meters.append(leftLine(five, label: "5h", group: a.group)) }
+        if let five { t.meters.append(leftLine(five, group: a.group)) }
         guard let week = Usage.weekly(a) else { return t }
-        t.meters.append(leftLine(week, label: "Week", group: a.group))
+        t.meters.append(leftLine(week, group: a.group))
         if Usage.showWeeklyReset(week, now: now), let at = week.resetAt {
             t.resets.append("wk resets \(Fmt.reset(at, now: now))")
         }
@@ -136,7 +133,7 @@ private struct UsageTile {
 
     /// Big primary percent used (plus spend), and up to three labelled meters.
     static func cursor(_ a: UsageAccount, now: Double) -> UsageTile {
-        var t = UsageTile(title: Usage.displayName(a), longLabels: true)
+        var t = UsageTile(title: Usage.displayName(a))
         let main = Usage.primary(a)
         let used: Double? = main.flatMap { $0.noLimit ? nil : $0.pctUsed }
         t.big = used.map { Fmt.percent($0) } ?? (main?.noLimit == true ? "No limit" : "–")
@@ -145,7 +142,7 @@ private struct UsageTile {
         t.fraction = used.map { $0 / 100 }
         let parts: [String?] = [used == nil ? nil : "used", Usage.money(a.spend)]
         let caption = parts.compactMap { $0 }.joined(separator: " · ")
-        if !caption.isEmpty { t.caption = caption }
+        if main != nil || !caption.isEmpty { t.caption = caption }
         t.resets = (main?.resetAt).map { [Fmt.reset($0, now: now)] } ?? []
         t.meters = a.meters.prefix(3).map { usedLine($0) }
         return t
@@ -174,20 +171,19 @@ private struct UsageTile {
         return t
     }
 
-    static func leftLine(_ m: UsageMeter, label: String, group: String) -> UsageMeterLine {
+    static func leftLine(_ m: UsageMeter, group: String) -> UsageMeterLine {
         let left = Usage.remaining(m)
         let value = m.noLimit ? "No limit" : (left.map { Fmt.percent($0) } ?? "–")
         let fraction: Double? = m.noLimit ? 1 : left.map { $0 / 100 }
-        return UsageMeterLine(label: label, fraction: fraction, tone: Usage.leftTone(left, group: group), value: value,
-                              short: value, help: help(m, left == nil ? value : "\(value) left"))
+        return UsageMeterLine(fraction: fraction, tone: Usage.leftTone(left, group: group),
+                              help: help(m, left == nil ? value : "\(value) left"))
     }
 
     static func usedLine(_ m: UsageMeter) -> UsageMeterLine {
         let used: Double? = m.noLimit ? nil : m.pctUsed
         let pct = used.map { Fmt.percent($0) } ?? (m.noLimit ? "No limit" : "–")
         let value = used == nil ? pct : "\(pct) used"
-        return UsageMeterLine(label: m.label, fraction: used.map { $0 / 100 }, tone: usedTone(used), value: value,
-                              short: pct, help: help(m, value))
+        return UsageMeterLine(fraction: used.map { $0 / 100 }, tone: usedTone(used), help: help(m, value))
     }
 
     static func usedTone(_ used: Double?) -> Tone { (used ?? 0) >= 80 ? .red : .blue }
@@ -203,55 +199,61 @@ private struct UsageTileView: View {
     let now: Double
     @Environment(\.widthClass) private var width
     @State private var showBreakdown = false
-    /// A click keeps the breakdown open after the pointer leaves; hover alone shows it while over the tile.
-    @State private var pinned = false
 
     var body: some View {
         if let account = tile.grokAccount {
+            // A click opens the per-bot breakdown; hovering shows the top bots as a tooltip.
             card
                 .contentShape(Rectangle())
-                .onHover { inside in showBreakdown = inside || pinned }
-                .onTapGesture {
-                    pinned.toggle()
-                    showBreakdown = pinned
-                }
+                .onTapGesture { showBreakdown.toggle() }
                 .popover(isPresented: $showBreakdown, arrowEdge: .bottom) {
                     GrokBreakdown(account: account, usage: tile.grokUsage, now: now)
                 }
-                .onChange(of: showBreakdown) { _, open in
-                    if !open { pinned = false }
-                }
-                .help("Hover for the per-bot breakdown; click to keep it open")
+                .help(grokHelp)
+                .accessibilityAddTraits(.isButton)
         } else {
-            card
+            card.help(([tile.title] + tile.resets + tile.meters.map(\.help) + tile.notes).joined(separator: "\n"))
         }
     }
 
+    /// One compact tile at every width: title and reset, then number, caption and bar on one line.
+    /// Tiles with several meters (Claude 5h and week, Cursor's three) stack a thin bar per meter.
     private var card: some View {
-        VStack(alignment: .leading, spacing: width == .wide ? 3 : 4) {
+        VStack(alignment: .leading, spacing: 3) {
             // The reset label shortens, then disappears, when the tile is too narrow for it.
             ViewThatFits(in: .horizontal) {
                 header(tile.resets.joined(separator: " · "))
                 header(tile.resets.first)
                 header(nil)
             }
-            .help(tile.grokAccount == nil ? ([tile.title] + tile.resets + tile.notes).joined(separator: " · ")
-                                          : "Hover for the per-bot breakdown")
-            if width == .wide {
-                // Wide windows are short: number, caption and bar share one line.
-                HStack(spacing: 8) {
-                    value(tile.compactCaption ?? tile.caption).layoutPriority(1)
-                    Bar(fraction: tile.fraction, tone: tile.tone, height: 4).frame(minWidth: 24)
-                }
-            } else {
-                value(tile.caption)
-                detail
+            HStack(spacing: 8) {
+                value(tile.compactCaption ?? tile.caption).layoutPriority(1)
+                bars.frame(minWidth: 24)
             }
         }
         .padding(.horizontal, width == .narrow ? 10 : 12)
-        .padding(.vertical, width == .wide ? 8 : 10)
+        .padding(.vertical, 8)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(tile.grokAccount == nil ? Theme.surface : Theme.tint(.sky))
+    }
+
+    @ViewBuilder private var bars: some View {
+        if tile.meters.count > 1 {
+            VStack(spacing: 2) {
+                ForEach(Array(tile.meters.enumerated()), id: \.offset) { _, line in
+                    Bar(fraction: line.fraction, tone: line.tone, height: 3)
+                }
+            }
+        } else {
+            Bar(fraction: tile.fraction, tone: tile.tone, height: 4)
+        }
+    }
+
+    /// "Top: Chief 22%, Dropbox Rebuild PM 15%, … Click for every bot."
+    private var grokHelp: String {
+        guard let usage = tile.grokUsage, !usage.bots.isEmpty else { return "Click for the per-bot breakdown" }
+        let top = Usage.grokTop(usage).top.prefix(3).map { "\($0.name) \(Fmt.percent($0.share))" }
+        return "Top: \(top.joined(separator: ", ")). Click for every bot."
     }
 
     private func header(_ reset: String?) -> some View {
@@ -265,7 +267,7 @@ private struct UsageTileView: View {
         }
     }
 
-    /// Big number plus its caption: "62% left", "45% used · $142", "$318 / $500".
+    /// Big number plus its caption: "62% left · wk 71%", "45% used · $142", "$318 / $500".
     private func value(_ caption: String) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 4) {
             Text(tile.big).font(Theme.F.big).monospacedDigit()
@@ -273,33 +275,6 @@ private struct UsageTileView: View {
                 .lineLimit(1).minimumScaleFactor(0.7).layoutPriority(1)
             Text(caption).font(Theme.F.small).foregroundStyle(Theme.text2).lineLimit(1)
         }
-    }
-
-    /// Labelled meters when the tile has them, otherwise one bar; then any notes.
-    @ViewBuilder private var detail: some View {
-        if tile.meters.isEmpty {
-            Bar(fraction: tile.fraction, tone: tile.tone, height: 4).padding(.top, 2)
-        } else {
-            VStack(spacing: 3) {
-                ForEach(Array(tile.meters.enumerated()), id: \.offset) { _, line in meterRow(line) }
-            }
-            .padding(.top, 2)
-        }
-        if !tile.notes.isEmpty {
-            Text(tile.notes.joined(separator: " · ")).font(Theme.F.caption).foregroundStyle(Theme.text3).lineLimit(1)
-        }
-    }
-
-    private func meterRow(_ line: UsageMeterLine) -> some View {
-        let labelWidth: CGFloat = tile.longLabels ? (width == .narrow ? 46 : 84) : 32
-        return HStack(spacing: 6) {
-            Text(line.label).font(Theme.F.caption).foregroundStyle(Theme.text2).lineLimit(1)
-                .frame(width: labelWidth, alignment: .leading)
-            Bar(fraction: line.fraction, tone: line.tone, height: 3)
-            Text(width == .narrow ? line.short : line.value).font(Theme.F.caption).monospacedDigit()
-                .foregroundStyle(Theme.text2).lineLimit(1).fixedSize()
-        }
-        .help(line.help)
     }
 }
 

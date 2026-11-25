@@ -44,7 +44,7 @@ also attached to the GitHub Release.
 - **Feed**: the latest bot updates, with Needs me / Avi's Work / Admin filters.
 - **Coding sessions** (Claude Code, T3, Cursor) sit in their own small FYI panel with the bot
   that started each one. They are never Needs my attention.
-- **Usage strip**: Grok Bot for both accounts (hover for the per-bot breakdown, click to keep it open), Claude
+- **Usage strip**: Grok Bot for both accounts (hover for the top bots, click for the per-bot breakdown), Claude
   for Avi's Work and Admin (5-hour and weekly meters), Cursor's meters, Codex and API pools.
 - The account filter (All, Avi's Work, Admin) applies to every tab, and the feed then reads that
   account's latest updates from the server. Times are Asia/Hebron.
