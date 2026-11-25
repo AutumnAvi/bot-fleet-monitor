@@ -89,9 +89,12 @@ enum BaseURL {
         return nil
     }
 
-    static func stateURL(_ base: URL) -> URL? {
+    /// `?account=` narrows only the activity page (the newest 40 events) to one account, as the web
+    /// does; bots, sessions, usage and attention are always both accounts. The server has no "all".
+    static func stateURL(_ base: URL, account: AccountFilter = .all) -> URL? {
         var root = base.absoluteString
         if root.hasSuffix("/") { root.removeLast() }
-        return URL(string: root + "/api/v1/state")
+        let query = account == .all ? "" : "?account=\(account.rawValue)"
+        return URL(string: root + "/api/v1/state" + query)
     }
 }

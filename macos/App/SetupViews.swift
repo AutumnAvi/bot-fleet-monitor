@@ -156,10 +156,12 @@ struct SettingsView: View {
     }
 
     private func save() async {
-        guard BaseURL.save(urlText) != nil else {
+        let previous = BaseURL.saved
+        guard let saved = BaseURL.save(urlText) else {
             result = "Use an https URL, or http://127.0.0.1."
             return
         }
+        if saved != previous { model.forgetServerData() }
         if !keyText.isEmpty {
             guard keyText.count >= 32, KeychainStore.save(keyText) else {
                 result = "Couldn't store that read key."

@@ -47,8 +47,8 @@ final class FleetModel: ObservableObject {
 
     @Published var state: FleetState?
     @Published var problem: FetchProblem?
+    /// Server time of the last good read.
     @Published var lastSuccess: Date?
-    @Published var loading = false
     @Published var configured: Bool
     @Published var showSettings = false
     /// Last HTTP status from /api/v1/state. 404 means the server is not v2 yet.
@@ -57,7 +57,11 @@ final class FleetModel: ObservableObject {
         didSet { UserDefaults.standard.set(tab.rawValue, forKey: "botfleet.tab") }
     }
     @Published var filter: AccountFilter {
-        didSet { UserDefaults.standard.set(filter.rawValue, forKey: "botfleet.filter") }
+        didSet {
+            UserDefaults.standard.set(filter.rawValue, forKey: "botfleet.filter")
+            // The activity page is fetched per account, so a new filter reads again.
+            if oldValue != filter { poke() }
+        }
     }
     /// The bot the Focus card shows (`account:id`). Nil means the first one that needs Avi.
     @Published var focusKey: String?
@@ -89,7 +93,11 @@ final class FleetModel: ObservableObject {
         filter = AccountFilter(rawValue: UserDefaults.standard.string(forKey: "botfleet.filter") ?? "") ?? .all
         let center = NSWorkspace.shared.notificationCenter
         observers.append(center.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
-            Task { @MainActor in self?.poke() }
+            // Give Wi-Fi a moment to come back, or the first read after wake reports Offline.
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                self?.poke()
+            }
         })
         poke()
     }
@@ -155,15 +163,13 @@ final class FleetModel: ObservableObject {
             httpStatus = nil
             return
         }
-        guard let endpoint = BaseURL.stateURL(base) else {
+        guard let endpoint = BaseURL.stateURL(base, account: filter) else {
             problem = .badURL
             httpStatus = nil
             return
         }
-        loading = true
         let result = await fetch(endpoint, key: key)
         guard mine == generation else { return }
-        loading = false
         switch result {
         case .success(let fresh, let code):
             httpStatus = code
@@ -171,7 +177,7 @@ final class FleetModel: ObservableObject {
             noteNewItems(fresh.attention)
             state = fresh
             problem = nil
-            lastSuccess = Date()
+            lastSuccess = Fmt.date(fresh.now)
             tick = Date()
         case .failure(let failure, let code):
             httpStatus = code
@@ -241,8 +247,26 @@ final class FleetModel: ObservableObject {
         }
     }
 
+    /// Settings pointed the app at another server: drop the old server's data and notification
+    /// baseline so nothing from it is shown as "last good" Fleet data.
+    func forgetServerData() {
+        generation += 1
+        state = nil
+        problem = nil
+        lastSuccess = nil
+        httpStatus = nil
+        focusKey = nil
+        primed = false
+        seen = []
+        UserDefaults.standard.set(false, forKey: "botfleet.attentionPrimed")
+        UserDefaults.standard.removeObject(forKey: "botfleet.attentionSeen")
+    }
+
     /// Menu bar or notification: show this bot in the Focus tab.
     func focus(on key: String) {
+        if let item = items.first(where: { $0.key == key }), !filter.matches(item.account) {
+            filter = .all
+        }
         focusKey = key
         tab = .focus
     }
