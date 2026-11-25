@@ -25,7 +25,7 @@ enum FetchProblem: Equatable {
     var detail: String {
         switch self {
         case .offline(let why): return why
-        case .unauthorized: return "Fleet answered 401. Paste the read key again in Settings."
+        case .unauthorized: return "Fleet refused the read key. Paste it again in Settings."
         case .notV2: return "GET /api/v1/state returned 404. This server is still the older dashboard."
         case .server(let code): return "Fleet answered HTTP \(code)."
         case .decode: return "Fleet sent data this version of the app can't read."
@@ -84,7 +84,7 @@ final class FleetModel: ObservableObject {
         config.httpCookieAcceptPolicy = .never
         config.httpShouldSetCookies = false
         config.timeoutIntervalForRequest = 15
-        return URLSession(configuration: config)
+        return URLSession(configuration: config, delegate: NoRedirects(), delegateQueue: nil)
     }()
 
     init() {
@@ -141,6 +141,8 @@ final class FleetModel: ObservableObject {
     /// Refresh now and restart the 20-second cadence.
     func poke() {
         guard fixedNow == nil else { return }
+        // Drop the reply of any read in flight, so a cancelled request never shows as Offline.
+        generation += 1
         loop?.cancel()
         loop = Task { [weak self] in
             while !Task.isCancelled {
@@ -169,8 +171,10 @@ final class FleetModel: ObservableObject {
             return
         }
         let result = await fetch(endpoint, key: key)
-        guard mine == generation else { return }
+        guard mine == generation, !Task.isCancelled else { return }
         switch result {
+        case .cancelled:
+            return
         case .success(let fresh, let code):
             httpStatus = code
             skewMs = fresh.now - Date().timeIntervalSince1970 * 1000
@@ -189,6 +193,7 @@ final class FleetModel: ObservableObject {
     private enum Outcome {
         case success(FleetState, Int)
         case failure(FetchProblem, Int?)
+        case cancelled
     }
 
     private func fetch(_ endpoint: URL, key: String) async -> Outcome {
@@ -209,6 +214,10 @@ final class FleetModel: ObservableObject {
             case 404: return .failure(.notV2, code)
             default: return .failure(.server(code), code)
             }
+        } catch let error as URLError where error.code == .cancelled {
+            return .cancelled
+        } catch is CancellationError {
+            return .cancelled
         } catch let error as URLError {
             return .failure(.offline(Self.describe(error)), nil)
         } catch {
@@ -244,7 +253,17 @@ final class FleetModel: ObservableObject {
             return "Reached Fleet, but couldn't read its reply."
         case .failure(let other, _):
             return other.detail
+        case .cancelled:
+            return "Cancelled."
         }
+    }
+
+    /// Saves the dashboard URL (origin only). A different server drops the old one's data first.
+    func saveServer(_ raw: String) -> Bool {
+        let previous = BaseURL.saved
+        guard let saved = BaseURL.save(raw) else { return false }
+        if saved != previous { forgetServerData() }
+        return true
     }
 
     /// Settings pointed the app at another server: drop the old server's data and notification
@@ -262,7 +281,7 @@ final class FleetModel: ObservableObject {
         UserDefaults.standard.removeObject(forKey: "botfleet.attentionSeen")
     }
 
-    /// Menu bar or notification: show this bot in the Focus tab.
+    /// Menu bar: show this bot in the Focus tab.
     func focus(on key: String) {
         if let item = items.first(where: { $0.key == key }), !filter.matches(item.account) {
             filter = .all
@@ -293,5 +312,13 @@ final class FleetModel: ObservableObject {
         }
         let request = UNNotificationRequest(identifier: "botfleet.attention", content: content, trigger: nil)
         UNUserNotificationCenter.current().add(request)
+    }
+}
+
+/// Never follow a redirect: the read key goes only to the saved origin. A 3xx shows as a server error.
+private final class NoRedirects: NSObject, URLSessionTaskDelegate {
+    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
+        completionHandler(nil)
     }
 }

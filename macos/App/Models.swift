@@ -40,10 +40,12 @@ struct FleetState: Decodable {
         staleAfterMs = try c.decodeIfPresent(Double.self, forKey: .staleAfterMs) ?? 600_000
         attention = try c.decodeIfPresent([AttentionItem].self, forKey: .attention) ?? []
         bots = try c.decodeIfPresent([Bot].self, forKey: .bots) ?? []
-        sessions = try c.decodeIfPresent([CodingSession].self, forKey: .sessions) ?? []
-        accounts = try c.decodeIfPresent([UsageAccount].self, forKey: .accounts) ?? []
-        grok = try c.decodeIfPresent([GrokUsage].self, forKey: .grok) ?? []
-        activity = try c.decodeIfPresent(ActivityPage.self, forKey: .activity)?.items ?? []
+        // Collector-owned sections: one that does not decode shows as empty instead of
+        // failing the whole reply, so the attention count and the bots keep working.
+        sessions = (try? c.decodeIfPresent([CodingSession].self, forKey: .sessions)) ?? []
+        accounts = (try? c.decodeIfPresent([UsageAccount].self, forKey: .accounts)) ?? []
+        grok = (try? c.decodeIfPresent([GrokUsage].self, forKey: .grok)) ?? []
+        activity = (try? c.decodeIfPresent(ActivityPage.self, forKey: .activity))?.items ?? []
     }
 }
 
