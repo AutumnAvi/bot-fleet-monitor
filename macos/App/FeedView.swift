@@ -8,7 +8,8 @@ struct FeedView: View {
     let d: FleetDerived
 
     @Environment(\.widthClass) private var widthClass
-    @State private var chip: FeedChip = .everything
+    /// "Needs me" chip: only the kinds that ask something of Avi.
+    @State private var needsOnly = false
 
     @ViewBuilder var body: some View {
         if widthClass == .narrow {
@@ -110,13 +111,30 @@ struct FeedView: View {
 
     // MARK: What bots are saying
 
-    /// Account chips only make sense when the window shows both accounts.
-    private var visibleChips: [FeedChip] { d.filter == .all ? FeedChip.allCases : [.everything, .needsMe] }
-    private var activeChip: FeedChip { visibleChips.contains(chip) ? chip : .everything }
-
-    /// `d.activity` already has the global account filter; the chip narrows it further.
+    /// The account chips set the window's account filter, which reads that account's own page of
+    /// updates from the server (not just a slice of the shared 40). "Needs me" narrows what was read.
     private var shownActivity: [ActivityItem] {
-        d.activity.filter { activeChip.matches($0) }.sorted { ($0.at, $0.seq) > ($1.at, $1.seq) }
+        d.activity.filter { !needsOnly || FeedChip.asksAvi($0) }.sorted { ($0.at, $0.seq) > ($1.at, $1.seq) }
+    }
+
+    private func isOn(_ option: FeedChip) -> Bool {
+        switch option {
+        case .everything: return !needsOnly && model.filter == .all
+        case .needsMe: return needsOnly
+        case .work: return model.filter == .work
+        case .admin: return model.filter == .leaf
+        }
+    }
+
+    private func select(_ option: FeedChip) {
+        switch option {
+        case .everything:
+            needsOnly = false
+            model.filter = .all
+        case .needsMe: needsOnly.toggle()
+        case .work: model.filter = model.filter == .work ? .all : .work
+        case .admin: model.filter = model.filter == .leaf ? .all : .leaf
+        }
     }
 
     private var timelineSection: some View {
@@ -138,9 +156,9 @@ struct FeedView: View {
 
     private var chipRow: some View {
         HStack(spacing: 6) {
-            ForEach(visibleChips, id: \.self) { option in
-                let on = option == activeChip
-                Button { chip = option } label: {
+            ForEach(FeedChip.allCases, id: \.self) { option in
+                let on = isOn(option)
+                Button { select(option) } label: {
                     Text(option.label)
                         .font(.system(size: 12, weight: .medium))
                         .foregroundStyle(on ? Theme.onInk : Theme.text2)
@@ -264,7 +282,8 @@ struct FeedView: View {
 
 // MARK: - Helpers
 
-/// Timeline filter chips. "Needs me" keeps the kinds that ask something of Avi.
+/// Timeline chips. "Needs me" keeps the kinds that ask something of Avi; the account chips are
+/// the window's account filter.
 private enum FeedChip: CaseIterable {
     case everything, needsMe, work, admin
 
@@ -277,13 +296,8 @@ private enum FeedChip: CaseIterable {
         }
     }
 
-    func matches(_ item: ActivityItem) -> Bool {
-        switch self {
-        case .everything: return true
-        case .needsMe: return ["waiting_user", "error", "message"].contains(item.kind)
-        case .work: return item.account == .work
-        case .admin: return item.account == .leaf
-        }
+    static func asksAvi(_ item: ActivityItem) -> Bool {
+        ["waiting_user", "error", "message"].contains(item.kind)
     }
 }
 
