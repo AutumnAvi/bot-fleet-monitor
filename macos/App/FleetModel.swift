@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import Security
 import UserNotifications
 
 struct AttentionItem: Decodable {

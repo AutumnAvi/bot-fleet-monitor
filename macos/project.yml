@@ -19,23 +19,21 @@ targets:
     platform: macOS
     sources: [App]
     info:
+      path: App/Info.plist
       properties:
         CFBundleDisplayName: Bot Fleet
         CFBundleName: Bot Fleet
-        CFBundleShortVersionString: $(MARKETING_VERSION)
-        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         LSUIElement: true
-        LSMinimumSystemVersion: "14.0"
-        LSApplicationCategoryType: public.app-category.productivity
-        NSAppTransportSecurity:
-          NSAllowsLocalNetworking: true
     entitlements:
       path: App/BotFleet.entitlements
+      properties: {}
     dependencies:
       - sdk: WebKit.framework
       - sdk: UserNotifications.framework
+      - sdk: Security.framework
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.autumnavi.BotFleet
         PRODUCT_NAME: BotFleet
-        GENERATE_INFOPLIST_FILE: YES
+        GENERATE_INFOPLIST_FILE: NO
+        INFOPLIST_FILE: App/Info.plist
