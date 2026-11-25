@@ -28,7 +28,7 @@ struct FocusView: View {
         d.attention.count > 1 ? d.attention[(currentIndex + 1) % d.attention.count] : nil
     }
 
-    private var liveSessions: Int { d.sessions.filter(Sessions.isActive).count }
+    private var liveSessions: Int { d.sessions.filter(Sessions.isLive).count }
 
     var body: some View {
         if narrow {

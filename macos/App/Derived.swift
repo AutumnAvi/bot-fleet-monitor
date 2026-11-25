@@ -161,6 +161,11 @@ enum Sessions {
         }
     }
 
+    /// Running or in review: what "live" counts (paused and stalled are counted separately).
+    static func isLive(_ s: CodingSession) -> Bool {
+        ["running", "in_review"].contains(displayStatus(s))
+    }
+
     static func isActive(_ s: CodingSession) -> Bool {
         ["running", "in_review", "paused_limit", "stalled"].contains(displayStatus(s))
     }

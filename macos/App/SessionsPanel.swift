@@ -83,7 +83,7 @@ struct SessionsPanel: View {
                         .foregroundStyle(Theme.fg(.blue))
                 }
                 if let orphanText {
-                    if extra > 0 || showAll { Text("·").foregroundStyle(Theme.text3) }
+                    if extra > 0 || (showAll && all.count > limit) { Text("·").foregroundStyle(Theme.text3) }
                     Text(orphanText).foregroundStyle(Theme.text3).lineLimit(1).truncationMode(.tail)
                 }
             }
