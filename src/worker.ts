@@ -162,7 +162,52 @@ async function handleIngest(request: Request, env: Env, kind: string): Promise<R
 
 // ------------------------------------------------------------------ dashboard API
 
+const SAVED_PATH = /^\/api\/bots\/([^/]+)\/([^/]+)\/saved$/;
+
+/** Splits /api/bots/<account>/<id>[/saved] parts; null when the account or id is not valid. */
+function botRef(accountRaw: string | undefined, idRaw: string | undefined): { account: Account; id: string } | null {
+  let id: string;
+  try {
+    id = decodeURIComponent(idRaw ?? "");
+  } catch {
+    return null;
+  }
+  const account = accountRaw ?? "";
+  if (!(ACCOUNTS as readonly string[]).includes(account) || !BOT_ID.test(id)) return null;
+  return { account: account as Account, id };
+}
+
+/**
+ * POST /api/bots/<account>/<id>/saved with {"saved": true|false}: the dashboard's
+ * "Save for later" / "Move back" button. Same-origin only; it changes the dashboard's
+ * own state and never contacts the bot.
+ */
+async function handleSaved(request: Request, env: Env, match: RegExpExecArray): Promise<Response> {
+  if (request.method !== "POST") return methodNotAllowed("POST");
+  if (!isSameOriginPost(request)) return apiError(403, "forbidden", "Cross-site request refused");
+  if (!(await hasSession(request, env))) return apiError(401, "unauthorized", "Sign in first");
+  if (!isJsonContentType(request)) {
+    return apiError(415, "unsupported_media_type", "Send JSON");
+  }
+  const ref = botRef(match[1], match[2]);
+  if (!ref) return apiError(404, "not_found", "No such bot");
+  let saved: unknown;
+  try {
+    const body = JSON.parse(await readBodyCapped(request, 256)) as unknown;
+    saved = typeof body === "object" && body !== null ? (body as { saved?: unknown }).saved : undefined;
+  } catch {
+    return apiError(400, "invalid_payload", 'Body must be {"saved": true} or {"saved": false}');
+  }
+  if (typeof saved !== "boolean") return apiError(400, "invalid_payload", '"saved" must be true or false');
+  const found = await store(env).setSaved(ref.account, ref.id, saved);
+  if (!found) return apiError(404, "not_found", "No such bot");
+  log({ evt: "saved", account: ref.account, bot: ref.id, saved });
+  return json({ ok: true, saved });
+}
+
 async function handleApi(request: Request, env: Env, url: URL): Promise<Response> {
+  const savedMatch = SAVED_PATH.exec(url.pathname);
+  if (savedMatch) return handleSaved(request, env, savedMatch);
   if (request.method !== "GET") return methodNotAllowed("GET");
   if (!(await hasSession(request, env))) return apiError(401, "unauthorized", "Sign in first");
 
@@ -190,17 +235,9 @@ async function handleApi(request: Request, env: Env, url: URL): Promise<Response
 
   const match = /^\/api\/bots\/([^/]+)\/([^/]+)$/.exec(url.pathname);
   if (match) {
-    const account = match[1] ?? "";
-    let id: string;
-    try {
-      id = decodeURIComponent(match[2] ?? "");
-    } catch {
-      return apiError(400, "invalid_bot", "Bad bot id");
-    }
-    if (!(ACCOUNTS as readonly string[]).includes(account) || !BOT_ID.test(id)) {
-      return apiError(404, "not_found", "No such bot");
-    }
-    const detail = await store(env).botDetail(account as Account, id);
+    const ref = botRef(match[1], match[2]);
+    if (!ref) return apiError(404, "not_found", "No such bot");
+    const detail = await store(env).botDetail(ref.account, ref.id);
     return detail ? json(detail) : apiError(404, "not_found", "No such bot");
   }
 

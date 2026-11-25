@@ -1,4 +1,5 @@
-// Read-only calls to this dashboard's own Worker. Nothing here talks to a bot.
+// Calls to this dashboard's own Worker. Nothing here talks to a bot: the only
+// write is the dashboard's own "Save for later" flag.
 
 import type { AccountFilter } from "../src/shared/fleet-view";
 import type { ActivityPage, BotDetail, FleetResponse } from "../src/shared/model";
@@ -34,4 +35,17 @@ export async function fetchBot(account: string, id: string): Promise<BotDetail |
     if (err instanceof Error && err.message.includes("(404)")) return null;
     throw err;
   }
+}
+
+/** Dashboard "Save for later" (true) or "Move back" (false). */
+export async function setSaved(account: string, id: string, saved: boolean): Promise<void> {
+  const res = await fetch(`/api/bots/${encodeURIComponent(account)}/${encodeURIComponent(id)}/saved`, {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { Accept: "application/json", "Content-Type": "application/json" },
+    body: JSON.stringify({ saved }),
+    signal: AbortSignal.timeout(TIMEOUT_MS),
+  });
+  if (res.status === 401) throw new SignedOutError("signed out");
+  if (!res.ok) throw new Error(`Request failed (${res.status})`);
 }

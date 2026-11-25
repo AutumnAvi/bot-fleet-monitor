@@ -29,6 +29,14 @@ export type IngestResult =
   | { ok: true; created: boolean }
   | { ok: false; status: number; error: string; message: string; retryAfterSec?: number };
 
+type ResolvedBot = {
+  id: string;
+  status: string | null;
+  step: string | null;
+  summary: string | null;
+  saved_at: number | null;
+};
+
 export interface RateResult {
   ok: boolean;
   retryAfterSec: number;
@@ -47,6 +55,7 @@ interface BotRow extends Record<string, SqlStorageValue> {
   summary_at: number | null;
   last_avi_reply_at: number | null;
   last_report_at: number | null;
+  saved_at: number | null;
   unread: number;
 }
 
@@ -69,6 +78,7 @@ CREATE TABLE IF NOT EXISTS bots (
   summary_at INTEGER,
   last_avi_reply_at INTEGER,
   last_report_at INTEGER,
+  saved_at INTEGER,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL,
   PRIMARY KEY (account, id)
@@ -141,6 +151,7 @@ export class FleetStore extends DurableObject<Env> {
 
   private migrate(now: number): void {
     this.sql.exec(SCHEMA);
+    this.addColumnIfMissing("bots", "saved_at", "INTEGER");
     const bots = (seedFile as { bots?: unknown }).bots;
     const version = seedVersion(bots);
     const current = this.sql
@@ -154,6 +165,15 @@ export class FleetStore extends DurableObject<Env> {
         version,
       );
     });
+  }
+
+  /** Additive schema change for stores created before the column existed. */
+  private addColumnIfMissing(table: string, column: string, type: string): void {
+    const has = this.sql
+      .exec<{ name: string }>(`PRAGMA table_info(${table})`)
+      .toArray()
+      .some((col) => col.name === column);
+    if (!has) this.sql.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
   }
 
   /** Inserts/refreshes work-account bots from docs/roster-seed.json. Never touches status. */
@@ -307,6 +327,10 @@ export class FleetStore extends DurableObject<Env> {
           if (payload.status === "done" || bot.status !== stored || bot.step !== payload.step) {
             this.addEvent(account, bot.id, payload.status, payload.step, now);
           }
+          // A saved bot that reports it needs Avi (or is stuck) goes back to "Needs my attention".
+          if (bot.saved_at !== null && (stored === "waiting_user" || stored === "error")) {
+            this.writeSaved(account, bot.id, null, now, "Needs you again");
+          }
           break;
         }
         case "summary": {
@@ -355,6 +379,12 @@ export class FleetStore extends DurableObject<Env> {
             bot.id,
           );
           this.addEvent(account, bot.id, "avi_replied", null, now);
+          // Avi came back to this bot, so it is no longer saved for later.
+          if (bot.saved_at !== null) this.writeSaved(account, bot.id, null, now, null);
+          break;
+        }
+        case "save-for-later": {
+          if (bot.saved_at === null) this.writeSaved(account, bot.id, now, now, "Avi will come back to it");
           break;
         }
       }
@@ -377,11 +407,11 @@ export class FleetStore extends DurableObject<Env> {
     payload: IngestPayload,
     now: number,
   ):
-    | { ok: true; created: boolean; bot: { id: string; status: string | null; step: string | null; summary: string | null } }
+    | { ok: true; created: boolean; bot: ResolvedBot }
     | Extract<IngestResult, { ok: false }> {
     const existing = this.sql
-      .exec<{ id: string; name: string; grp: string; status: string | null; step: string | null; summary: string | null }>(
-        "SELECT id, name, grp, status, step, summary FROM bots WHERE account = ? AND id = ?",
+      .exec<ResolvedBot & { name: string; grp: string }>(
+        "SELECT id, name, grp, status, step, summary, saved_at FROM bots WHERE account = ? AND id = ?",
         account,
         payload.botId,
       )
@@ -427,7 +457,35 @@ export class FleetStore extends DurableObject<Env> {
       now,
       now,
     );
-    return { ok: true, created: true, bot: { id: payload.botId, status: null, step: null, summary: null } };
+    return { ok: true, created: true, bot: { id: payload.botId, status: null, step: null, summary: null, saved_at: null } };
+  }
+
+  /** Sets or clears "Save for later" and records it in the feed. */
+  private writeSaved(account: Account, botId: string, savedAt: number | null, now: number, detail: string | null): void {
+    this.sql.exec(
+      "UPDATE bots SET saved_at = ?, updated_at = ? WHERE account = ? AND id = ?",
+      savedAt,
+      now,
+      account,
+      botId,
+    );
+    this.addEvent(account, botId, savedAt === null ? "unsaved" : "saved", detail, now);
+  }
+
+  /** Dashboard "Save for later" / "Move back" button. Returns false for an unknown bot. */
+  setSaved(account: Account, id: string, saved: boolean): boolean {
+    const now = Date.now();
+    let found = false;
+    this.ctx.storage.transactionSync(() => {
+      const row = this.sql
+        .exec<{ saved_at: number | null }>("SELECT saved_at FROM bots WHERE account = ? AND id = ?", account, id)
+        .toArray()[0];
+      if (!row) return;
+      found = true;
+      if (saved && row.saved_at === null) this.writeSaved(account, id, now, now, "Saved from the dashboard");
+      if (!saved && row.saved_at !== null) this.writeSaved(account, id, null, now, "Moved back from the dashboard");
+    });
+    return found;
   }
 
   private addEvent(account: Account, botId: string, kind: EventKind, detail: string | null, now: number): void {
@@ -455,7 +513,7 @@ export class FleetStore extends DurableObject<Env> {
     return this.sql
       .exec<BotRow>(
         `SELECT b.account, b.id, b.name, b.grp, b.sort_index, b.status, b.step, b.status_at,
-                b.summary, b.summary_at, b.last_avi_reply_at, b.last_report_at,
+                b.summary, b.summary_at, b.last_avi_reply_at, b.last_report_at, b.saved_at,
                 (SELECT COUNT(*) FROM messages m WHERE m.account = b.account AND m.bot_id = b.id) AS unread
          FROM bots b ${where}
          ORDER BY b.sort_index, b.name COLLATE NOCASE`,
@@ -518,7 +576,7 @@ export class FleetStore extends DurableObject<Env> {
     const row = this.sql
       .exec<BotRow>(
         `SELECT b.account, b.id, b.name, b.grp, b.sort_index, b.status, b.step, b.status_at,
-                b.summary, b.summary_at, b.last_avi_reply_at, b.last_report_at,
+                b.summary, b.summary_at, b.last_avi_reply_at, b.last_report_at, b.saved_at,
                 (SELECT COUNT(*) FROM messages m WHERE m.account = b.account AND m.bot_id = b.id) AS unread
          FROM bots b WHERE b.account = ? AND b.id = ?`,
         account,
@@ -562,5 +620,6 @@ function toBotView(row: BotRow): BotView {
     unread: row.unread,
     lastAviReplyAt: row.last_avi_reply_at,
     lastReportAt: row.last_report_at,
+    savedAt: row.saved_at,
   };
 }

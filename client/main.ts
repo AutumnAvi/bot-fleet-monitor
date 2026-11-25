@@ -1,5 +1,6 @@
-// Bot Fleet dashboard client. Read-only: it fetches what bots pushed from this
-// Worker and renders it. There are no actions that message, start or stop a bot.
+// Bot Fleet dashboard client: it fetches what bots pushed from this Worker and
+// renders it. The only write is the dashboard's own "Save for later" flag; there are
+// no actions that message, start or stop a bot.
 
 import {
   activityText,
@@ -14,7 +15,7 @@ import {
 import { LIMITS, type ActivityItem, type BotDetail, type FleetResponse } from "../src/shared/model";
 import { STATE_LABEL, lastSeenAt, type Bucket, type DisplayState } from "../src/shared/status";
 import { formatClock, formatFull, formatRelative } from "../src/shared/time";
-import { SignedOutError, fetchActivity, fetchBot, fetchFleet } from "./api";
+import { SignedOutError, fetchActivity, fetchBot, fetchFleet, setSaved } from "./api";
 import { h, icon, type IconName } from "./dom";
 
 const REFRESH_MS = 30_000;
@@ -315,10 +316,54 @@ function rowEl(row: BotRowView, showAccountTag: boolean): HTMLElement {
     timeEl(lastSeenAt(bot)),
   );
   main.addEventListener("click", () => openDetail(bot.account, bot.id, `row:${bot.account}/${bot.id}`));
-  return h("li", { class: "row" }, main, openControl(row));
+  return h("li", { class: "row" }, main, saveControl(row), openControl(row));
 }
 
-function groupEl(key: string, title: string, rows: BotRowView[], options: { needsMe?: boolean; emptyText?: string | null; showAccountTag: boolean }): HTMLElement {
+/** "Later" parks a bot in Save for later; "Move back" returns it. Dashboard-only. */
+function saveControl(row: BotRowView, inDrawer = false): HTMLElement {
+  const { bot } = row;
+  const saved = bot.savedAt !== null;
+  const label = saved ? "Move back" : inDrawer ? "Save for later" : "Later";
+  const button = h(
+    "button",
+    {
+      type: "button",
+      class: `save-btn${saved ? " saved" : ""}${inDrawer ? " in-drawer" : ""}`,
+      title: saved ? "Move back out of Save for later" : "Save for later",
+      "aria-label": saved ? `Move ${bot.name} back out of Save for later` : `Save ${bot.name} for later`,
+      "data-key": `${inDrawer ? "detail-save" : "save"}:${bot.account}/${bot.id}`,
+    },
+    icon("bookmark", "icon bm"),
+    label,
+  );
+  button.addEventListener("click", () => void toggleSaved(bot.account, bot.id, !saved));
+  return button;
+}
+
+async function toggleSaved(account: string, id: string, saved: boolean): Promise<void> {
+  const bot = state.data?.bots.find((b) => b.account === account && b.id === id);
+  if (!bot) return;
+  const previous = bot.savedAt;
+  bot.savedAt = saved ? now() : null; // optimistic; the refresh below brings the server's truth
+  if (state.detail?.data && state.detail.account === account && state.detail.id === id) {
+    state.detail.data.bot.savedAt = bot.savedAt;
+  }
+  renderAll();
+  try {
+    await setSaved(account, id, saved);
+  } catch (err) {
+    if (err instanceof SignedOutError) return signedOut();
+    bot.savedAt = previous;
+    state.error = "Could not update Save for later. Try again.";
+    renderAll();
+    return;
+  }
+  void refresh();
+}
+
+type SectionTone = "attention" | "saved";
+
+function groupEl(key: string, title: string, rows: BotRowView[], options: { tone?: SectionTone; emptyText?: string | null; showAccountTag: boolean }): HTMLElement {
   const collapsed = state.collapsed.has(key);
   const listId = `group-${key.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}`;
   const toggle = h(
@@ -331,7 +376,8 @@ function groupEl(key: string, title: string, rows: BotRowView[], options: { need
       "data-key": `toggle:${key}`,
     },
     h("span", { class: "group-title" }, title),
-    options.needsMe ? h("span", { class: "dot amber small", "aria-hidden": "true" }) : null,
+    options.tone === "attention" ? h("span", { class: "dot amber small", "aria-hidden": "true" }) : null,
+    options.tone === "saved" ? icon("bookmark", "icon bm small") : null,
     h("span", { class: "group-count" }, String(rows.length)),
     icon(collapsed ? "chevronDown" : "chevronUp", "icon chev"),
   );
@@ -344,7 +390,8 @@ function groupEl(key: string, title: string, rows: BotRowView[], options: { need
   const list = h("ul", { class: "rows", id: listId, hidden: collapsed });
   if (rows.length === 0 && options.emptyText) list.append(h("li", { class: "row-empty" }, options.emptyText));
   for (const row of rows) list.append(rowEl(row, options.showAccountTag));
-  return h("section", { class: `group${options.needsMe ? " needs-me" : ""}` }, h("h2", { class: "group-head" }, toggle), list);
+  const toneClass = options.tone === "attention" ? " needs-me" : options.tone === "saved" ? " saved-later" : "";
+  return h("section", { class: `group${toneClass}` }, h("h2", { class: "group-head" }, toggle), list);
 }
 
 function renderTiles(counts: Record<Bucket, number> | null): void {
@@ -376,19 +423,23 @@ function renderFleet(): void {
 
   const showAccountTag = state.account === "both";
   const sections: HTMLElement[] = [];
-  if (view.needsMe && (view.needsMe.length > 0 || state.filter === "needs_me")) {
+  const attentionFilter = state.filter === "needs_me" || state.filter === "stuck";
+  if (view.attention && (view.attention.length > 0 || attentionFilter)) {
     sections.push(
-      groupEl("needs-me", "Needs me", view.needsMe, {
-        needsMe: true,
+      groupEl("needs-me", "Needs my attention", view.attention, {
+        tone: "attention",
         emptyText: state.query.trim() === "" ? "Nothing needs you right now." : null,
         showAccountTag,
       }),
     );
   }
+  if (view.saved.length > 0) {
+    sections.push(groupEl("saved", "Save for later", view.saved, { tone: "saved", showAccountTag }));
+  }
   for (const group of view.groups) {
     sections.push(groupEl(`g:${group.name}`, group.name, group.rows, { emptyText: group.emptyText, showAccountTag: false }));
   }
-  const needsMeEmptyShown = state.filter === "needs_me" && state.query.trim() === "";
+  const needsMeEmptyShown = attentionFilter && state.query.trim() === "";
   if (view.shown === 0 && (state.query.trim() !== "" || state.filter !== "all") && !needsMeEmptyShown) {
     sections.push(h("p", { class: "empty" }, "No bots match."));
   }
@@ -575,9 +626,20 @@ function renderDetail(focus = false): void {
         h("dt", {}, "Account"),
         h("dd", {}, `${bot.account === "work" ? "Work" : "Leaf"} · ${bot.group}`),
       ),
-      row.openUrl
-        ? openControl(row, "primary")
-        : h("p", { class: "muted small" }, LEAF_OPEN_NOTE),
+      h(
+        "div",
+        { class: "detail-actions" },
+        row.openUrl ? openControl(row, "primary") : null,
+        saveControl(row, true),
+      ),
+      row.openUrl ? null : h("p", { class: "muted small" }, LEAF_OPEN_NOTE),
+      bot.savedAt !== null
+        ? h(
+            "p",
+            { class: "muted small" },
+            `Saved for later ${formatRelative(bot.savedAt, t)}. It comes back to Needs my attention when it reports Needs me or Stuck, or when you reply to it.`,
+          )
+        : null,
     );
   }
 

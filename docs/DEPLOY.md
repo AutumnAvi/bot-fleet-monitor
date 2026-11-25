@@ -1,9 +1,8 @@
 # Deploying Bot Fleet
 
-Status on 2026-11-24: **not deployed.** The build box had no Cloudflare login
-(`npx wrangler whoami` → "You are not authenticated") and no `CLOUDFLARE_API_TOKEN` /
-`CLOUDFLARE_ACCOUNT_ID`. Everything below is ready to run once someone with Avi's Cloudflare
-account authenticates. A custom domain is not needed; `workers.dev` is fine.
+Status: **deployed** on 2026-11-25 to `https://bot-fleet-monitor.autumnlakemarketing.workers.dev`
+(account workers.dev subdomain `autumnlakemarketing`). The URL is also in the secrets folder as `ingest-url`.
+A custom domain is not needed; `workers.dev` is fine.
 
 The secrets already exist outside the repo in `/workspace/bot-fleet-monitor-secrets/`
 (mode 700, files mode 600). See the `README.md` in that folder. Never commit or print them.

@@ -15,6 +15,7 @@
 #   report.sh summary "short need-to-know paragraph, <=600 chars"   ("" clears it)
 #   report.sh message "copy of the message you just sent Avi"       ("-" reads stdin)
 #   report.sh avi-replied
+#   report.sh save-for-later                                       (Avi said "I'll come back to you")
 #
 # Requires bash and curl. The key is passed to curl through a file descriptor, so it
 # never appears in the process list, and it is never printed.
@@ -24,7 +25,7 @@ set -u
 warn() { printf 'bot-fleet: %s\n' "$*" >&2; }
 
 usage() {
-  sed -n '13,17p' "$0" >&2
+  sed -n '13,18p' "$0" >&2
   exit 0
 }
 
@@ -113,7 +114,7 @@ case $kind in
     [ "$text" = "-" ] && text=$(cat)
     body+=",\"text\":$(json_str "$(cap "$text" 2000)")"
     ;;
-  avi-replied) ;;
+  avi-replied | save-for-later) ;;
   *)
     warn "unknown report type '$kind'; report skipped"
     exit 0

@@ -10,7 +10,7 @@ import {
 } from "../shared/model";
 import { cleanBlock, cleanLine } from "./sanitize";
 
-export const INGEST_KINDS = ["status", "summary", "message", "avi-replied"] as const;
+export const INGEST_KINDS = ["status", "summary", "message", "avi-replied", "save-for-later"] as const;
 export type IngestKind = (typeof INGEST_KINDS)[number];
 
 export function isIngestKind(value: string): value is IngestKind {
@@ -28,7 +28,8 @@ export type IngestPayload =
   | (BotRef & { kind: "status"; status: IngestStatus; step: string | null })
   | (BotRef & { kind: "summary"; summary: string | null })
   | (BotRef & { kind: "message"; text: string })
-  | (BotRef & { kind: "avi-replied" });
+  | (BotRef & { kind: "avi-replied" })
+  | (BotRef & { kind: "save-for-later" });
 
 export class ClientError extends Error {
   constructor(
@@ -49,6 +50,7 @@ const KIND_FIELDS: Record<IngestKind, string[]> = {
   summary: ["summary"],
   message: ["text"],
   "avi-replied": [],
+  "save-for-later": [],
 };
 
 function bad(message: string, code = "invalid_payload"): ClientError {
@@ -133,6 +135,7 @@ export function parseIngestPayload(
       return { ...ref, kind, text };
     }
     case "avi-replied":
+    case "save-for-later":
       return { ...ref, kind };
   }
 }

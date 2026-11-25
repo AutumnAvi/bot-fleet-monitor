@@ -21,6 +21,7 @@ function bot(partial: Partial<BotView> & Pick<BotView, "id">): BotView {
     unread: 0,
     lastAviReplyAt: null,
     lastReportAt: null,
+    savedAt: null,
     ...partial,
   };
 }
@@ -80,10 +81,11 @@ describe("fleet view", () => {
     expect(view({ account: "leaf" }).counts).toEqual({ needs_me: 0, working: 1, idle: 0, stuck: 0 });
   });
 
-  it("pins Needs me on top (most recent first) and keeps those bots out of their groups", () => {
+  it("pins Needs me and Stuck (incl. stale) on top, newest first, and keeps them out of their groups", () => {
     const v = view();
-    expect(v.needsMe?.map((r) => r.bot.id)).toEqual(["chief", "dam"]);
+    expect(v.attention?.map((r) => r.bot.id)).toEqual(["err", "chief", "dam", "stale"]);
     expect(v.groups.map((g) => g.name)).toEqual(["Main", "PMs", "Asana", "Sub-Bots", "Leaf account"]);
+    expect(v.groups.find((g) => g.name === "Asana")?.emptyText).toMatch(/Needs my attention or Save for later/);
     expect(v.groups.find((g) => g.name === "Main")?.rows.map((r) => r.bot.id)).toEqual(["quiet"]);
     expect(v.groups.find((g) => g.name === "PMs")?.rows.map((r) => r.bot.id)).toEqual(["copy"]);
   });
@@ -103,14 +105,32 @@ describe("fleet view", () => {
   });
 
   it("filters by status chip, search text and account", () => {
-    expect(view({ filter: "stuck" }).groups.flatMap((g) => g.rows.map((r) => r.bot.id))).toEqual(["stale", "err"]);
-    expect(view({ filter: "stuck" }).needsMe).toBeNull();
+    expect(view({ filter: "stuck" }).attention?.map((r) => r.bot.id)).toEqual(["err", "stale"]);
+    expect(view({ filter: "stuck" }).groups).toEqual([]);
+    expect(view({ filter: "needs_me" }).attention?.map((r) => r.bot.id)).toEqual(["chief", "dam"]);
     expect(view({ filter: "needs_me" }).groups).toEqual([]);
+    expect(view({ filter: "working" }).attention).toBeNull();
     expect(view({ query: "library" }).groups.flatMap((g) => g.rows.map((r) => r.bot.id))).toEqual(["copy"]);
-    expect(view({ query: "approve" }).needsMe?.map((r) => r.bot.id)).toEqual(["chief"]);
+    expect(view({ query: "approve" }).attention?.map((r) => r.bot.id)).toEqual(["chief"]);
     expect(view({ account: "work" }).groups.map((g) => g.name)).not.toContain("Leaf account");
     expect(view({ account: "leaf" }).groups.map((g) => g.name)).toEqual(["Leaf account"]);
     expect(view({ query: "zzz" }).shown).toBe(0);
+  });
+
+  it("Save for later holds saved bots (newest save first) out of attention and groups", () => {
+    const saved = bots.map((b) =>
+      b.id === "dam" ? { ...b, savedAt: NOW - 1000 } : b.id === "quiet" ? { ...b, savedAt: NOW - 5000 } : b,
+    );
+    const v = buildFleetView(saved, { account: "both", filter: "all", query: "", now: NOW });
+    expect(v.saved.map((r) => r.bot.id)).toEqual(["dam", "quiet"]);
+    expect(v.savedCount).toBe(2);
+    expect(v.attention?.map((r) => r.bot.id)).toEqual(["err", "chief", "stale"]);
+    expect(v.groups.find((g) => g.name === "Main")?.rows).toEqual([]);
+    expect(v.counts.needs_me).toBe(2); // tiles still count saved bots by status
+    expect(v.shown).toBe(saved.length);
+    const filtered = buildFleetView(saved, { account: "both", filter: "needs_me", query: "", now: NOW });
+    expect(filtered.saved.map((r) => r.bot.id)).toEqual(["dam"]);
+    expect(filtered.attention?.map((r) => r.bot.id)).toEqual(["chief"]);
   });
 
   it("Open deep link exists only for work bots and encodes the id", () => {

@@ -51,6 +51,7 @@ const ICONS = {
   chevronUp: ["M6 15l6-6 6 6"],
   chevronRight: ["M9 6l6 6-6 6"],
   close: ["M6 6l12 12", "M18 6 6 18"],
+  bookmark: ["M7 4h10v16l-5-3.6L7 20z"],
 } as const;
 
 export type IconName = keyof typeof ICONS;

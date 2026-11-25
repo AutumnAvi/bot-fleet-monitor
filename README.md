@@ -30,8 +30,17 @@ dashboard never polls, pings or wakes a bot.
 - Title, search, filter chips (All / Needs me / Working / Idle / Stuck), account switcher
   (Work | Leaf, Work, Leaf).
 - Count tiles: Needs me (amber), Working (green), Idle (gray), Stuck (red). Clicking a tile filters.
-- Pinned **Needs me** section, then collapsible groups in this order: Main, PMs, Asana,
-  Sub-Bots, Unassigned (only when it has bots), Leaf account.
+- Pinned **Needs my attention** section: every bot that is Needs me or Stuck (including
+  stale), newest status first, unless it is saved for later.
+- **Save for later** section (shown when it has bots), most recently saved first. A bot gets
+  there when Avi clicks **Later** on its row or **Save for later** in its detail view, or when
+  the bot reports `save-for-later` (Avi told it "I'll come back to you"). **Move back** takes
+  it out again. A saved bot comes back on its own when it reports a new `waiting_user` or
+  `error` status (it needs Avi again) or reports `avi-replied` (Avi came back to it).
+  `working`, `idle`, `done`, summaries and message copies leave it saved. The flag lives in the
+  Durable Object (`bots.saved_at`).
+- Then collapsible groups in this order: Main, PMs, Asana, Sub-Bots, Unassigned (only when it
+  has bots), Leaf account. Bots shown in the two sections above are not repeated here.
 - Each row: status dot, name, one-line current step, relative time, **Open**.
   Open is `grokbot://app/v1/prompt?id=<bot-id>` for work-account bots; it is disabled on Leaf
   rows (those ids belong to a different Grok Bot login). An amber dot after a name means the bot
@@ -42,7 +51,8 @@ dashboard never polls, pings or wakes a bot.
 - Activity feed derived from ingest events (status changes, waiting, errors, done, summaries,
   messages, replies), with "View older activity…".
 - All wall-clock times are shown in Asia/Hebron.
-- No actions: no send-to-bot, approvals, start/stop or edit.
+- The only action is Save for later / Move back, which changes the dashboard's own state.
+  No send-to-bot, approvals, start/stop or edit.
 
 ### Status model
 
@@ -72,13 +82,21 @@ work groups are Main, PMs, Asana, Sub-Bots, Unassigned; Leaf bots are always "Le
 | `status` | `status` (`waiting_user`, `working`, `idle`, `error`, `done`), optional `step` (≤80) | Sets the current state. |
 | `summary` | `summary` (≤600, `""` clears) | The "what you need to know" text. |
 | `message` | `text` (≤2000) | Copy of a message the bot sent Avi. Newest 30 kept. |
-| `avi-replied` | — | Avi replied: clears the message copies, records the time. |
+| `avi-replied` | — | Avi replied: clears the message copies, records the time, takes the bot out of Save for later. |
+| `save-for-later` | — | Avi said he'll come back to it: moves the bot to Save for later until it reports `waiting_user`/`error` or `avi-replied`. |
 
 Responses: `200 {"ok":true,"created":false}`, `201` when the bot was registered, `400`
 invalid payload/JSON, `401` bad key, `403` account mismatch, `404` unknown bot without a name,
 `409` bot limit, `413` body over 16 KB, `415` not JSON, `429` rate limited (120/min per key,
 30/min per bot; `Retry-After` set). Long text is cut with "…", control/invisible characters are
 removed and obvious credentials are replaced with `[redacted]`. Error bodies never echo keys.
+
+Clients must send a `User-Agent` header. Cloudflare refuses requests with none or with
+Python's default `Python-urllib/x.y` (403, "error code: 1010") before they reach the Worker.
+curl and `docs/report.sh` are fine; in Python set e.g. `"User-Agent": "bot-fleet-report/1.0"`.
+
+Dashboard write (session cookie + same-origin required): `POST /api/bots/<work|leaf>/<id>/saved`
+with `{"saved": true|false}`.
 
 Read API (session cookie required): `GET /api/fleet[?account=work|leaf]`,
 `GET /api/activity?before=<seq>[&account=work|leaf]`, `GET /api/bots/<work|leaf>/<id>`.

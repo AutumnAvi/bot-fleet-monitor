@@ -33,11 +33,24 @@ export interface GroupView {
 
 export interface FleetView {
   counts: Record<Bucket, number>;
-  /** Pinned "Needs me" rows; null when the section is hidden by the status filter. */
-  needsMe: BotRowView[] | null;
+  /**
+   * "Needs my attention": every Needs me or Stuck bot (including stale) that is not
+   * saved for later, newest status first. Null when the status filter hides it.
+   */
+  attention: BotRowView[] | null;
+  /** "Save for later": saved bots that pass the filters, most recently saved first. */
+  saved: BotRowView[];
+  /** How many bots in the selected accounts are saved, ignoring filters. */
+  savedCount: number;
+  /** The usual groups, without the bots shown in the two sections above. */
   groups: GroupView[];
-  /** Rows shown in total (Needs me + groups). */
+  /** Rows shown in total (attention + saved + groups). */
   shown: number;
+}
+
+/** Buckets that pull a bot into "Needs my attention". */
+export function needsAttention(bucket: Bucket): boolean {
+  return bucket === "needs_me" || bucket === "stuck";
 }
 
 export function openUrl(bot: Pick<BotView, "account" | "id">): string | null {
@@ -102,21 +115,28 @@ export function buildFleetView(bots: readonly BotView[], options: ViewOptions): 
     (row) => matchesQuery(row, query) && (options.filter === "all" || row.bucket === options.filter),
   );
 
-  const showNeedsMe = options.filter === "all" || options.filter === "needs_me";
-  const needsMe = showNeedsMe
+  const isSaved = (row: BotRowView): boolean => row.bot.savedAt !== null;
+  const savedCount = inAccount.filter(isSaved).length;
+  const saved = visible
+    .filter(isSaved)
+    .sort((a, b) => (b.bot.savedAt ?? 0) - (a.bot.savedAt ?? 0) || byOrder(a, b));
+
+  const showAttention = options.filter === "all" || needsAttention(options.filter);
+  const attention = showAttention
     ? visible
-        .filter((row) => row.bucket === "needs_me")
+        .filter((row) => !isSaved(row) && needsAttention(row.bucket))
         .sort((a, b) => (b.bot.statusAt ?? 0) - (a.bot.statusAt ?? 0) || byOrder(a, b))
     : null;
+  const inGroups = (row: BotRowView): boolean => !isSaved(row) && !needsAttention(row.bucket);
 
   const groups: GroupView[] = [];
-  if (options.filter !== "needs_me") {
+  if (options.filter === "all" || !needsAttention(options.filter)) {
     for (const name of GROUP_ORDER) {
       const isLeaf = name === LEAF_GROUP;
       if (isLeaf && options.account === "work") continue;
       if (!isLeaf && options.account === "leaf") continue;
       const all = inAccount.filter((row) => row.bot.group === name);
-      const rows = visible.filter((row) => row.bot.group === name && row.bucket !== "needs_me").sort(byOrder);
+      const rows = visible.filter((row) => row.bot.group === name && inGroups(row)).sort(byOrder);
       if (rows.length === 0) {
         if (filtering) continue;
         if (name === "Unassigned" && all.length === 0) continue;
@@ -128,18 +148,18 @@ export function buildFleetView(bots: readonly BotView[], options: ViewOptions): 
             ? "No Leaf-account bots yet. They appear here after their first report."
             : "No bots in this group.";
         } else {
-          emptyText = "Everything here is in Needs me above.";
+          emptyText = "Everything here is in Needs my attention or Save for later above.";
         }
       }
       groups.push({ name, rows, emptyText });
     }
     // Bots whose group is not in GROUP_ORDER (should not happen) still get shown.
-    const stray = visible.filter((row) => !GROUP_ORDER.includes(row.bot.group) && row.bucket !== "needs_me");
+    const stray = visible.filter((row) => !GROUP_ORDER.includes(row.bot.group) && inGroups(row));
     if (stray.length > 0) groups.push({ name: "Other", rows: stray.sort(byOrder), emptyText: null });
   }
 
-  const shown = (needsMe?.length ?? 0) + groups.reduce((sum, g) => sum + g.rows.length, 0);
-  return { counts, needsMe, groups, shown };
+  const shown = (attention?.length ?? 0) + saved.length + groups.reduce((sum, g) => sum + g.rows.length, 0);
+  return { counts, attention, saved, savedCount, groups, shown };
 }
 
 /** Feed copy for one activity item (without the bot name). */
@@ -162,6 +182,10 @@ export function activityText(item: Pick<ActivityItem, "kind" | "detail">): strin
       return d ? `Messaged you: “${d}”` : "Messaged you";
     case "avi_replied":
       return "You replied";
+    case "saved":
+      return d ? `Saved for later · ${d}` : "Saved for later";
+    case "unsaved":
+      return d ? `Back from Save for later · ${d}` : "Back from Save for later";
   }
 }
 
@@ -177,6 +201,8 @@ export function activityTone(kind: ActivityItem["kind"]): "amber" | "green" | "g
       return "red";
     case "summary":
     case "avi_replied":
+    case "saved":
+    case "unsaved":
       return "blue";
     case "idle":
     case "done":

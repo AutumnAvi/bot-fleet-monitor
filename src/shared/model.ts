@@ -54,7 +54,11 @@ export type EventKind =
   | "done"
   | "summary"
   | "message"
-  | "avi_replied";
+  | "avi_replied"
+  /** Parked in "Save for later" (by Avi on the dashboard, or by the bot when Avi said "later"). */
+  | "saved"
+  /** Back out of "Save for later": Avi un-saved it, replied, or the bot needs him again. */
+  | "unsaved";
 
 export interface BotView {
   account: Account;
@@ -73,6 +77,8 @@ export interface BotView {
   lastAviReplyAt: number | null;
   /** Server time (ms) of the last accepted report of any kind (status, summary, message, reply mark). */
   lastReportAt: number | null;
+  /** Server time (ms) the bot was put in "Save for later"; null when it is not saved. */
+  savedAt: number | null;
 }
 
 export interface ActivityItem {

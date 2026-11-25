@@ -28,9 +28,14 @@ Avi's Bot Fleet dashboard shows only what you push. Pushing is cheap; it must ne
 5. Every time you send Avi a message, push a copy: `report.sh message "<exact text you sent>"`.
 6. Limits: step ≤ 80 characters, summary ≤ 600 characters (one paragraph), message ≤ 2000
    characters. Never include secrets, passwords, API keys, tokens or the write key itself.
-7. If a report fails, carry on with the work. Do not retry in a loop and do not start a
+7. When Avi tells you he'll get back to you ("I'll come back to you", "later", "not now",
+   "park this"), make `report.sh save-for-later` the LAST report of that turn, after your
+   closing status. That moves you to his "Save for later" list. You come back to "Needs my
+   attention" on your own the next time you report waiting_user or error, or when he replies
+   to you (avi-replied). Don't send it on your own initiative.
+8. If a report fails, carry on with the work. Do not retry in a loop and do not start a
    turn later to resend it; your next normal report replaces it.
-8. Config comes from env vars BOT_FLEET_URL, BOT_FLEET_KEY, BOT_FLEET_BOT_ID
+9. Config comes from env vars BOT_FLEET_URL, BOT_FLEET_KEY, BOT_FLEET_BOT_ID
    (+ BOT_FLEET_NAME if you are not in the roster seed, e.g. every Leaf bot).
    Never print, paste or commit BOT_FLEET_KEY.
 ```
@@ -51,4 +56,8 @@ curl -sS -o /dev/null --max-time 5 -X POST \
 ```
 
 Endpoints: `/ingest/v1/status`, `/ingest/v1/summary`, `/ingest/v1/message`,
-`/ingest/v1/avi-replied`. Field reference: `README.md` → "Ingest API".
+`/ingest/v1/avi-replied`, `/ingest/v1/save-for-later` (body: just `botId`, plus `name` for Leaf bots).
+
+**Python or other HTTP clients:** always send a `User-Agent` header (e.g.
+`bot-fleet-report/1.0`). Cloudflare blocks Python's default `Python-urllib` agent with a 403
+("error code: 1010") before the request reaches the dashboard. curl and `report.sh` are fine. Field reference: `README.md` → "Ingest API".
