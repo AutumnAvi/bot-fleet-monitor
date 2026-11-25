@@ -32,11 +32,11 @@ struct BoardView: View {
     }
 
     /// Regular and wide: four columns that scroll on their own. Wide windows give Needs me and
-    /// Working double width with two cards per row (widths 2 : 2 : 1.3 : 1.1).
+    /// Working double width with two cards per row (widths 2.3 : 2 : 1.2 : 1).
     private var sideBySide: some View {
         GeometryReader { geo in
             let wide = widthClass == .wide
-            let ratios: [CGFloat] = wide ? [2, 2, 1.3, 1.1] : [1, 1, 1, 1]
+            let ratios: [CGFloat] = wide ? [2.3, 2, 1.2, 1] : [1, 1, 1, 1]
             let total: CGFloat = ratios.reduce(0, +)
             let unit: CGFloat = max(0, geo.size.width - 2 * Self.pad - 3 * Self.gap) / total
             HStack(alignment: .top, spacing: Self.gap) {
@@ -263,9 +263,10 @@ private struct BoardNeedsCard: View {
                 }
                 .buttonStyle(PlainRowButtonStyle())
                 .help("Show \(row.bot.name) in Focus")
+                .layoutPriority(1)
                 StateBadge(row: row, now: d.now)
                 Spacer(minLength: 6)
-                if let at = row.bot.statusAt { BoardTime(text: Fmt.age(at, now: d.now)) }
+                if let at = Rules.lastSeenAt(row.bot) { BoardTime(text: Fmt.age(at, now: d.now)) }
             }
             Text(row.step).font(Theme.F.body).foregroundStyle(Theme.text2).lineLimit(2)
             FlowLayout(spacing: 6).callAsFunction {
@@ -299,7 +300,7 @@ private struct BoardWorkingCard: View {
             HStack(spacing: 8) {
                 Text(row.bot.name).font(Theme.F.cardTitle).foregroundStyle(Theme.text).lineLimit(1)
                 Spacer(minLength: 6)
-                if let at = row.bot.statusAt { BoardTime(text: Fmt.age(at, now: d.now)) }
+                if let at = Rules.lastSeenAt(row.bot) { BoardTime(text: Fmt.age(at, now: d.now)) }
             }
             Text(row.step).font(compact ? Theme.F.small : Theme.F.body).foregroundStyle(Theme.text2)
                 .lineLimit(compact ? 1 : 2)

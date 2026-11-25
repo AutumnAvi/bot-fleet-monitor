@@ -342,7 +342,7 @@ struct FlowLayout: Layout {
         let width = proposal.width ?? .infinity
         var x: CGFloat = 0, y: CGFloat = 0, line: CGFloat = 0, widest: CGFloat = 0
         for view in subviews {
-            let size = view.sizeThatFits(.unspecified)
+            let size = Self.measure(view, maxWidth: width)
             if x > 0 && x + size.width > width {
                 y += line + lineSpacing
                 x = 0
@@ -358,7 +358,7 @@ struct FlowLayout: Layout {
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
         var x = bounds.minX, y = bounds.minY, line: CGFloat = 0
         for view in subviews {
-            let size = view.sizeThatFits(.unspecified)
+            let size = Self.measure(view, maxWidth: bounds.width)
             if x > bounds.minX && x + size.width > bounds.maxX {
                 y += line + lineSpacing
                 x = bounds.minX
@@ -368,5 +368,12 @@ struct FlowLayout: Layout {
             x += size.width + spacing
             line = max(line, size.height)
         }
+    }
+
+    /// Natural size, but never wider than the row, so a long chip truncates instead of overflowing.
+    private static func measure(_ view: LayoutSubview, maxWidth: CGFloat) -> CGSize {
+        let ideal = view.sizeThatFits(.unspecified)
+        guard maxWidth.isFinite, ideal.width > maxWidth else { return ideal }
+        return view.sizeThatFits(ProposedViewSize(width: maxWidth, height: nil))
     }
 }

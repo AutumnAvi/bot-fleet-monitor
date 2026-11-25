@@ -336,7 +336,7 @@ private struct FeedAttentionCard: View {
                     .foregroundStyle(Theme.fg(tone))
                     .lineLimit(1)
                 Spacer(minLength: 6)
-                if let at = row.bot.statusAt {
+                if let at = Rules.lastSeenAt(row.bot) {
                     Text(Fmt.age(at, now: now)).font(Theme.F.caption).foregroundStyle(Theme.text3).help(Fmt.full(at))
                 }
             }
@@ -370,6 +370,7 @@ private struct FeedSavedStrip: View {
                 .font(Theme.F.body).foregroundStyle(Theme.fg(.violet)).lineLimit(1).truncationMode(.tail)
             AccountTag(account: row.account)
             Spacer(minLength: 8)
+            OpenChatButton(bot: row.bot, compact: true)
             if let savedAt = row.bot.savedAt {
                 Text(verbatim: "since \(Fmt.clockOrDate(savedAt, now: now))")
                     .font(Theme.F.caption).foregroundStyle(Theme.text3).lineLimit(1).fixedSize()

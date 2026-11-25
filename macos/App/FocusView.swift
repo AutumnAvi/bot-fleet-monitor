@@ -193,7 +193,7 @@ struct FocusView: View {
     }
 
     @ViewBuilder private func ageLabel(_ row: BotRow) -> some View {
-        if let at = row.bot.statusAt {
+        if let at = Rules.lastSeenAt(row.bot) {
             Text(Fmt.age(at, now: d.now)).font(Theme.F.caption).foregroundStyle(Theme.text3).monospacedDigit()
         }
     }
@@ -211,7 +211,7 @@ struct FocusView: View {
                         }
                         Spacer(minLength: 8)
                         AccountTag(account: row.account)
-                        Pill(text: row.bot.savedAt.map { "Saved \(Fmt.clock($0))" } ?? "Saved", tone: .violet)
+                        Pill(text: row.bot.savedAt.map { "Saved \(Fmt.clockOrDate($0, now: d.now))" } ?? "Saved", tone: .violet)
                     }
                     .padding(.horizontal, 14)
                     .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
