@@ -31,8 +31,8 @@ jobs:
       - name: No web view in the app
         working-directory: macos
         run: |
-          ! grep -rnE "import WebKit|WKWebView" App
-          ! otool -L build/Build/Products/Release/BotFleet.app/Contents/MacOS/BotFleet | grep -i webkit
+          if grep -rnE "import WebKit|WKWebView" App; then exit 1; fi
+          if otool -L build/Build/Products/Release/BotFleet.app/Contents/MacOS/BotFleet | grep -i webkit; then exit 1; fi
       - name: Screenshots from the sample /api/v1/state reply
         working-directory: macos
         run: |
@@ -56,7 +56,7 @@ jobs:
           grep -F 'ATTENTION work | Event Kickoff PM | Stale' shots/focus.log
           grep -F 'SESSION T3 | Reply drafts v3 | Failed | started by Comment Reply App' shots/focus.log
           grep -F 'SESSION Claude | Claude CLI ~/scratch | Live | started by Unassigned' shots/focus.log
-          ! grep -E '^ATTENTION .*(Click tracking|copy-audit|Reply drafts|Rollback test)' shots/focus.log
+          if grep -E '^ATTENTION .*(Click tracking|copy-audit|Reply drafts|Rollback test)' shots/focus.log; then exit 1; fi
           ls -la shots
           for f in shots/*.png; do test -s "$f"; done
       - name: Verify and zip
