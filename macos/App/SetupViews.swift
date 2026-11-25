@@ -50,18 +50,20 @@ struct SetupView: View {
 
     private func test() async {
         busy = true
-        let key = keyText.isEmpty ? (KeychainStore.load() ?? "") : keyText
-        result = await model.test(url: urlText, key: key)
+        let typed = cleanKey(keyText)
+        result = await model.test(url: urlText, key: typed.isEmpty ? (KeychainStore.load() ?? "") : typed)
         busy = false
     }
 
+    /// Checks the URL and the key before storing either, so a bad key never leaves a new URL saved.
     private func save() async {
-        guard BaseURL.save(urlText) != nil else {
+        guard BaseURL.normalize(urlText) != nil else {
             result = "Use an https URL, or http://127.0.0.1."
             return
         }
-        if !keyText.isEmpty {
-            guard keyText.count >= 32, KeychainStore.save(keyText) else {
+        let typed = cleanKey(keyText)
+        if !typed.isEmpty {
+            guard typed.count >= 32, KeychainStore.save(typed) else {
                 result = "Couldn't store that read key."
                 return
             }
@@ -71,6 +73,7 @@ struct SetupView: View {
             result = "Paste the read key, then save."
             return
         }
+        _ = model.saveServer(urlText)
         result = "Saved. Checking the server…"
         await model.refresh()
         if model.httpStatus == 200 {
@@ -96,6 +99,7 @@ struct MissingV2View: View {
                 Button("Check again") { Task { await model.refresh() } }
                 Button("Change server") {
                     BaseURL.clear()
+                    model.forgetServerData()
                     Task { await model.refresh() }
                 }
             }
@@ -138,6 +142,7 @@ struct SettingsView: View {
                 Spacer()
                 Button("Forget key") {
                     KeychainStore.delete()
+                    model.forgetServerData()
                     keyText = ""
                     result = "Read key removed from the Keychain."
                     Task { await model.refresh() }
@@ -151,26 +156,33 @@ struct SettingsView: View {
 
     private func test() async {
         busy = true
-        result = await model.test(url: urlText, key: keyText.isEmpty ? (KeychainStore.load() ?? "") : keyText)
+        let typed = cleanKey(keyText)
+        result = await model.test(url: urlText, key: typed.isEmpty ? (KeychainStore.load() ?? "") : typed)
         busy = false
     }
 
+    /// Checks the URL and the key before storing either, so a bad key never leaves a new URL saved.
     private func save() async {
-        let previous = BaseURL.saved
-        guard let saved = BaseURL.save(urlText) else {
+        guard BaseURL.normalize(urlText) != nil else {
             result = "Use an https URL, or http://127.0.0.1."
             return
         }
-        if saved != previous { model.forgetServerData() }
-        if !keyText.isEmpty {
-            guard keyText.count >= 32, KeychainStore.save(keyText) else {
+        let typed = cleanKey(keyText)
+        if !typed.isEmpty {
+            guard typed.count >= 32, KeychainStore.save(typed) else {
                 result = "Couldn't store that read key."
                 return
             }
             keyText = ""
             UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
         }
+        _ = model.saveServer(urlText)
         result = "Saved."
         await model.refresh()
     }
+}
+
+/// A pasted key without the newline or spaces that come along when it is copied from a file.
+private func cleanKey(_ raw: String) -> String {
+    raw.trimmingCharacters(in: .whitespacesAndNewlines)
 }
