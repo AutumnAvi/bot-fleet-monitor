@@ -1,8 +1,8 @@
 import AppKit
 import SwiftUI
-import UserNotifications
-import WebKit
 
+/// The Bot Fleet window. Native SwiftUI over GET /api/v1/state; there is no web view, so a
+/// Screen Time filter on *.workers.dev in Safari/WebKit does not affect it.
 struct DashboardView: View {
     @ObservedObject var model: FleetModel
 
@@ -10,236 +10,141 @@ struct DashboardView: View {
         Group {
             if model.needsSetup {
                 SetupView(model: model)
-            } else if model.httpStatus == 404 {
+            } else if model.problem == .notV2 {
                 MissingV2View(model: model)
-            } else if let url = BaseURL.saved {
-                FleetWebView(url: url)
+            } else if let state = model.state {
+                FleetWindow(model: model, state: state)
+            } else if let problem = model.problem {
+                ProblemView(model: model, problem: problem)
             } else {
-                SetupView(model: model)
+                ConnectingView()
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(nsColor: .windowBackgroundColor))
+        .background(Theme.bg)
         .sheet(isPresented: $model.showSettings) {
             SettingsView(model: model)
         }
     }
 }
 
-struct SetupView: View {
+/// Top bar, connection banner, usage strip, then the selected tab. Reflows by window width.
+struct FleetWindow: View {
     @ObservedObject var model: FleetModel
-    @State private var urlText = BaseURL.saved?.absoluteString ?? BaseURL.suggested
-    @State private var keyText = ""
-    @State private var result = ""
-    @State private var busy = false
+    let state: FleetState
+
+    var body: some View {
+        GeometryReader { geo in
+            let d = FleetDerived(state: state, filter: model.filter, now: model.now)
+            VStack(spacing: 0) {
+                TopBar(model: model, d: d)
+                if let problem = model.problem {
+                    StatusBanner(model: model, problem: problem)
+                }
+                UsageStrip(state: state, now: model.now)
+                Rectangle().fill(Theme.line).frame(height: 1)
+                Group {
+                    switch model.tab {
+                    case .focus: FocusView(model: model, d: d)
+                    case .board: BoardView(model: model, d: d)
+                    case .feed: FeedView(model: model, d: d)
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            }
+            .environment(\.widthClass, WidthClass(width: geo.size.width))
+        }
+        .background(Theme.bg)
+    }
+}
+
+/// Shown above the data when the last read failed. The data below is the last good read.
+struct StatusBanner: View {
+    @ObservedObject var model: FleetModel
+    let problem: FetchProblem
+
+    var body: some View {
+        let tone: Tone = problem == .unauthorized || problem == .decode ? .red : .amber
+        HStack(spacing: 10) {
+            Image(systemName: problem == .unauthorized ? "key.slash" : "wifi.exclamationmark")
+                .foregroundStyle(Theme.fg(tone))
+            VStack(alignment: .leading, spacing: 1) {
+                Text("\(problem.title) — \(problem.detail)")
+                    .font(Theme.F.bodyBold)
+                    .foregroundStyle(Theme.fg(tone))
+                    .lineLimit(2)
+                Text(since)
+                    .font(Theme.F.small)
+                    .foregroundStyle(Theme.text2)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 8)
+            Button("Retry") { Task { await model.refresh() } }
+                .buttonStyle(SecondaryButtonStyle(compact: true))
+            Button("Settings…") { model.showSettings = true }
+                .buttonStyle(SecondaryButtonStyle(compact: true))
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+        .background(Theme.tint(tone))
+        .overlay(alignment: .bottom) { Rectangle().fill(Theme.fill(tone).opacity(0.5)).frame(height: 1) }
+    }
+
+    private var since: String {
+        guard let last = model.lastSuccess else { return "Retrying every \(Int(FleetModel.pollSeconds)) seconds." }
+        let at = last.timeIntervalSince1970 * 1000
+        return "Showing what Fleet said at \(Fmt.clock(at)) (\(Fmt.age(at, now: model.now)) ago). Retrying every \(Int(FleetModel.pollSeconds)) seconds."
+    }
+}
+
+/// No data yet and the first read failed (offline, refused key, server error).
+struct ProblemView: View {
+    @ObservedObject var model: FleetModel
+    let problem: FetchProblem
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("Bot Fleet")
-                .font(.largeTitle)
-            Text("This window is the dashboard. The menu bar keeps a count of what needs you. The app never messages a bot.")
-                .foregroundStyle(.secondary)
+            Image(systemName: problem == .unauthorized ? "key.slash" : "wifi.exclamationmark")
+                .font(.system(size: 30))
+                .foregroundStyle(Theme.fg(.amber))
+            Text(problem == .unauthorized ? "Fleet refused the read key" : "Can't reach Fleet")
+                .font(Theme.F.display)
+                .foregroundStyle(Theme.text)
+            Text(problem.detail)
+                .font(Theme.F.body)
+                .foregroundStyle(Theme.text2)
                 .fixedSize(horizontal: false, vertical: true)
-            Text("Dashboard URL")
-                .font(.headline)
-            TextField("https://…", text: $urlText)
-                .textFieldStyle(.roundedBorder)
-            Text("Read key")
-                .font(.headline)
-            SecureField("Paste the read key", text: $keyText)
-                .textFieldStyle(.roundedBorder)
-            Text("The key stays in the Keychain. It can only read the dashboard.")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-            if !result.isEmpty {
-                Text(result)
-                    .font(.callout)
-                    .fixedSize(horizontal: false, vertical: true)
+            if let base = BaseURL.saved {
+                Text(base.absoluteString)
+                    .font(.system(size: 12, design: .monospaced))
+                    .foregroundStyle(Theme.text3)
+                    .textSelection(.enabled)
             }
+            Text("The app checks again every \(Int(FleetModel.pollSeconds)) seconds.")
+                .font(Theme.F.small)
+                .foregroundStyle(Theme.text3)
             HStack {
-                Button("Test connection") { Task { await test() } }
-                    .disabled(busy)
-                Button("Save and open") { Task { await save() } }
+                Button("Try again") { Task { await model.refresh() } }
+                    .buttonStyle(PrimaryButtonStyle())
                     .keyboardShortcut(.defaultAction)
-                    .disabled(busy)
+                Button("Settings…") { model.showSettings = true }
+                    .buttonStyle(SecondaryButtonStyle())
             }
         }
-        .padding(36)
+        .padding(32)
         .frame(maxWidth: 520, alignment: .leading)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-    }
-
-    private func test() async {
-        busy = true
-        let key = keyText.isEmpty ? (KeychainStore.load() ?? "") : keyText
-        result = await model.test(url: urlText, key: key)
-        busy = false
-    }
-
-    private func save() async {
-        guard BaseURL.save(urlText) != nil else {
-            result = "Use an https URL, or http://127.0.0.1."
-            return
-        }
-        if !keyText.isEmpty {
-            guard keyText.count >= 32, KeychainStore.save(keyText) else {
-                result = "Couldn't store that read key."
-                return
-            }
-            keyText = ""
-            UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
-        } else if KeychainStore.load() == nil {
-            result = "Paste the read key, then save."
-            return
-        }
-        result = "Saved. Checking the server…"
-        await model.refresh()
-        if model.httpStatus == 200 {
-            result = ""
-        } else if model.httpStatus == 404 {
-            result = "Saved. This server doesn't have Bot Fleet v2 yet."
-        }
+        .card()
+        .padding(24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
-struct MissingV2View: View {
-    @ObservedObject var model: FleetModel
-
+struct ConnectingView: View {
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text("This server doesn't have Bot Fleet v2 yet")
-                .font(.title)
-                .fixedSize(horizontal: false, vertical: true)
-            Text("GET /api/v1/state returned 404. The address is still the older dashboard, so this window has nothing to show. Avi deploys v2 from his usual place. The menu bar starts counting once that endpoint exists.")
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-            HStack {
-                Button("Check again") { Task { await model.refresh() } }
-                Button("Change server") {
-                    BaseURL.clear()
-                    Task { await model.refresh() }
-                }
-            }
+        VStack(spacing: 10) {
+            ProgressView().controlSize(.small)
+            Text("Reading Fleet…").font(Theme.F.body).foregroundStyle(Theme.text2)
         }
-        .padding(36)
-        .frame(maxWidth: 560, alignment: .leading)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-    }
-}
-
-struct FleetWebView: NSViewRepresentable {
-    let url: URL
-
-    func makeCoordinator() -> Coordinator { Coordinator(allowed: url) }
-
-    func makeNSView(context: Context) -> WKWebView {
-        let config = WKWebViewConfiguration()
-        config.websiteDataStore = .default()
-        let web = WKWebView(frame: .zero, configuration: config)
-        web.navigationDelegate = context.coordinator
-        context.coordinator.last = url
-        web.load(URLRequest(url: url))
-        return web
-    }
-
-    func updateNSView(_ web: WKWebView, context: Context) {
-        guard context.coordinator.last != url else { return }
-        context.coordinator.allowed = url
-        context.coordinator.last = url
-        web.load(URLRequest(url: url))
-    }
-
-    final class Coordinator: NSObject, WKNavigationDelegate {
-        var allowed: URL
-        var last: URL?
-        init(allowed: URL) { self.allowed = allowed }
-
-        func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
-            guard let target = action.request.url else {
-                decisionHandler(.cancel)
-                return
-            }
-            if target.scheme == "grokbot" {
-                NSWorkspace.shared.open(target)
-                decisionHandler(.cancel)
-                return
-            }
-            if target.scheme == "about" {
-                decisionHandler(.allow)
-                return
-            }
-            if target.host?.lowercased() == allowed.host?.lowercased(), target.scheme == allowed.scheme {
-                decisionHandler(.allow)
-                return
-            }
-            decisionHandler(.cancel)
-        }
-    }
-}
-
-struct SettingsView: View {
-    @ObservedObject var model: FleetModel
-    @Environment(\.dismiss) private var dismiss
-    @State private var urlText = BaseURL.saved?.absoluteString ?? BaseURL.suggested
-    @State private var keyText = ""
-    @State private var result = ""
-    @State private var busy = false
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Bot Fleet").font(.title2)
-            Text("The read key is stored in the Keychain. The menu bar reads /api/v1/state and does not message bots.")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-            Text("Dashboard URL")
-            TextField("https://…", text: $urlText)
-                .textFieldStyle(.roundedBorder)
-            Text("Read key")
-            SecureField("Paste the read key", text: $keyText)
-                .textFieldStyle(.roundedBorder)
-            if !result.isEmpty {
-                Text(result).font(.callout)
-            }
-            HStack {
-                Button("Test") { Task { await test() } }
-                    .disabled(busy)
-                Button("Save") { Task { await save() } }
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(busy)
-                Spacer()
-                Button("Forget key") {
-                    KeychainStore.delete()
-                    keyText = ""
-                    result = "Read key removed from the Keychain."
-                    Task { await model.refresh() }
-                }
-                Button("Close") { dismiss() }
-            }
-        }
-        .padding(20)
-        .frame(width: 460)
-    }
-
-    private func test() async {
-        busy = true
-        result = await model.test(url: urlText, key: keyText.isEmpty ? (KeychainStore.load() ?? "") : keyText)
-        busy = false
-    }
-
-    private func save() async {
-        guard BaseURL.save(urlText) != nil else {
-            result = "Use an https URL, or http://127.0.0.1."
-            return
-        }
-        if !keyText.isEmpty {
-            guard keyText.count >= 32, KeychainStore.save(keyText) else {
-                result = "Couldn't store that read key."
-                return
-            }
-            keyText = ""
-            UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
-        }
-        result = "Saved."
-        await model.refresh()
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }

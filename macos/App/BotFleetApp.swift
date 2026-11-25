@@ -1,6 +1,21 @@
 import AppKit
 import SwiftUI
 
+/// Entry point. `--snapshot` renders the window from a sample /api/v1/state file for CI and exits;
+/// otherwise the normal SwiftUI app runs.
+@main
+enum BotFleetMain {
+    @MainActor
+    static func main() {
+        let args = CommandLine.arguments
+        if let i = args.firstIndex(of: "--snapshot"), args.count > i + 2 {
+            let ok = Snapshot.run(sample: args[i + 1], out: args[i + 2], options: Array(args[(i + 3)...]))
+            exit(ok ? 0 : 1)
+        }
+        BotFleetApp.main()
+    }
+}
+
 final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Filled in once SwiftUI has created the menu-bar label. Opens the single dashboard window.
     var showWindow: (() -> Void)?
@@ -37,7 +52,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 }
 
-@main
 struct BotFleetApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var model = FleetModel()
@@ -52,7 +66,7 @@ struct BotFleetApp: App {
 
         Window("Bot Fleet", id: "dashboard") {
             DashboardView(model: model)
-                .frame(minWidth: 480, minHeight: 500)
+                .frame(minWidth: 560, minHeight: 480)
         }
         .defaultSize(width: 1440, height: 900)
         .commands {
@@ -104,6 +118,7 @@ private func openDashboard(_ open: OpenWindowAction) {
     }
 }
 
+/// The menu-bar list: what needs Avi, each with its account. Clicking one shows it in Focus.
 private struct MenuView: View {
     @ObservedObject var model: FleetModel
     @Environment(\.openWindow) private var openWindow
@@ -114,8 +129,11 @@ private struct MenuView: View {
             if model.items.isEmpty {
                 Button("Open Fleet") { show() }
             } else {
-                ForEach(Array(model.items.prefix(8)), id: \.menuID) { item in
-                    Button("\(item.name) · \(item.label)") { show() }
+                ForEach(Array(model.items.prefix(8)), id: \.key) { item in
+                    Button("\(item.name) · \(DisplayState(attentionState: item.state).label) · \(item.accountLabel)") {
+                        model.focus(on: item.key)
+                        show()
+                    }
                 }
                 if model.items.count > 8 {
                     Text("\(model.items.count - 8) more")
@@ -134,7 +152,6 @@ private struct MenuView: View {
     }
 
     private func show() {
-        openWindow(id: "dashboard")
-        NSApp.activate(ignoringOtherApps: true)
+        openDashboard(openWindow)
     }
 }
