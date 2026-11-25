@@ -70,7 +70,12 @@ enum KeychainStore {
     }
 }
 
+extension Notification.Name {
+    static let botFleetShowWindow = Notification.Name("botFleetShowWindow")
+}
+
 enum BaseURL {
+    static let suggested = "https://bot-fleet-monitor.autumnlakemarketing.workers.dev"
     private static let key = "botfleet.baseURL"
 
     static var saved: URL? {
@@ -82,6 +87,10 @@ enum BaseURL {
         guard let url = normalize(raw) else { return nil }
         UserDefaults.standard.set(url.absoluteString, forKey: key)
         return url
+    }
+
+    static func clear() {
+        UserDefaults.standard.removeObject(forKey: key)
     }
 
     /// Origin only. http is limited to localhost so a read key cannot be sent to some other site.
@@ -112,9 +121,14 @@ enum BaseURL {
 @MainActor
 final class FleetModel: ObservableObject {
     @Published var items: [AttentionItem] = []
-    @Published var status = "Set the dashboard URL and read key in Settings."
+    @Published var status = "Add the dashboard URL and read key to start."
     @Published var showSettings = false
     @Published var reachable = false
+    /// Last HTTP status from GET /api/v1/state. 404 means this server is not v2 yet.
+    @Published var httpStatus: Int?
+    @Published var configured: Bool
+
+    var needsSetup: Bool { !configured }
 
     private var timer: Timer?
     private var primed = UserDefaults.standard.bool(forKey: "botfleet.attentionPrimed")
@@ -123,6 +137,7 @@ final class FleetModel: ObservableObject {
     var badge: String { reachable && !items.isEmpty ? "\(items.count)" : "Fleet" }
 
     init() {
+        configured = BaseURL.saved != nil && KeychainStore.load() != nil
         timer = Timer.scheduledTimer(withTimeInterval: 45, repeats: true) { [weak self] _ in
             guard let self else { return }
             Task { await self.refresh() }
@@ -131,20 +146,24 @@ final class FleetModel: ObservableObject {
     }
 
     func refresh() async {
+        configured = BaseURL.saved != nil && KeychainStore.load() != nil
         guard let base = BaseURL.saved else {
             reachable = false
             items = []
-            status = "Set the dashboard URL in Settings."
+            httpStatus = nil
+            status = "Add the dashboard URL and read key to start."
             return
         }
         guard let key = KeychainStore.load() else {
             reachable = false
             items = []
-            status = "Set the read key in Settings."
+            httpStatus = nil
+            status = "Add the read key to start."
             return
         }
         guard let endpoint = BaseURL.stateURL(base) else {
             reachable = false
+            httpStatus = nil
             status = "The dashboard URL is not usable."
             return
         }
@@ -155,6 +174,13 @@ final class FleetModel: ObservableObject {
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
             let code = (response as? HTTPURLResponse)?.statusCode ?? 0
+            httpStatus = code
+            if code == 404 {
+                reachable = false
+                items = []
+                status = "This server doesn't have Bot Fleet v2 yet."
+                return
+            }
             if code == 401 {
                 reachable = false
                 items = []
@@ -173,6 +199,7 @@ final class FleetModel: ObservableObject {
             status = items.isEmpty ? "Nothing needs you." : "\(items.count) need you."
         } catch {
             reachable = false
+            httpStatus = nil
             status = "Can't reach Fleet."
         }
     }
@@ -188,6 +215,9 @@ final class FleetModel: ObservableObject {
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
             let code = (response as? HTTPURLResponse)?.statusCode ?? 0
+            if code == 404 {
+                return "This server doesn't have Bot Fleet v2 yet. /api/v1/state returned 404."
+            }
             if code == 401 { return "Reached Fleet. The read key was refused." }
             guard code == 200 else { return "Reached Fleet. It replied \(code)." }
             let decoded = try JSONDecoder().decode(StateEnvelope.self, from: data)

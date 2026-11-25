@@ -1,8 +1,8 @@
 # Bot Fleet for macOS
 
-A menu-bar app. The window is the dashboard (the same page as the browser). The menu-bar
-item shows how many bots need Avi, from `GET /api/v1/state`, and a short list. Clicking a
-row opens the window. It does not message or wake a bot.
+A Dock app and a menu-bar item. Opening the app, or clicking its Dock icon, brings the
+dashboard window forward. The menu bar still shows how many bots need Avi, from
+`GET /api/v1/state`, and a short list. It does not message or wake a bot.
 
 The read key lives in the login Keychain (`com.autumnavi.BotFleet` / `read-key`). The
 dashboard URL is not a secret; it is saved in preferences. Neither is in this repo.
@@ -17,14 +17,17 @@ also attached to the GitHub Release.
 2. Move `BotFleet.app` to `/Applications` if you want it to stay.
 3. The first launch is blocked by Gatekeeper because the signature is ad-hoc. **Right-click
    the app and choose Open**, then Open again in the dialog. After that it launches normally.
-4. Click the menu-bar item (it says Fleet until the key is set) and choose Settings.
-5. Dashboard URL: `https://bot-fleet-monitor.autumnlakemarketing.workers.dev` once v2 is
-   deployed. Until then a local `http://127.0.0.1:8787` is accepted. `http` anywhere else is
-   refused. The app stores the origin only, so a key cannot be tucked into the URL.
-6. Paste the read key from `read-key` in the secrets folder (see `docs/DEPLOY.md`). Save.
-   Test connection should say it reached Fleet. The key is written to the Keychain and is
-   not shown again.
-7. In the window, sign in with the dashboard password once. The web view keeps that cookie.
+4. The dashboard window opens on its own. The Dock shows the Bot Fleet icon. The menu bar
+   still has a Fleet item.
+5. Until a URL and read key are saved, that window is the setup screen. The URL is already
+   filled in with `https://bot-fleet-monitor.autumnlakemarketing.workers.dev`. `http` is
+   accepted only for `127.0.0.1` and `localhost`. The app stores the origin only, so a key
+   cannot be tucked into the URL.
+6. Paste the read key from `read-key` in the secrets folder (see `docs/DEPLOY.md`). Test
+   connection, then Save and open. The key is written to the Keychain and is not shown again.
+7. If that server is still the v1 worker, the window says so: `/api/v1/state` returned 404.
+   The menu bar starts counting after v2 is deployed. Until then there is no blank page.
+8. When the server answers, sign in with the dashboard password once. The web view keeps that cookie.
 
 Optional: when a bot newly enters Needs my attention, macOS shows a notification. The first
 successful read is a baseline and does not notify. Allow notifications when macOS asks.
@@ -32,7 +35,7 @@ successful read is a baseline and does not notify. Allow notifications when macO
 The window opens at 1440×900. The Window menu has Wide and short (1920×700) and Tall and
 narrow (600×1400), which are the two reflowed layouts. You can also drag it to any size.
 
-Quit from the menu-bar item. The app has no Dock icon.
+Quit from the menu-bar item or the Dock. Clicking the Dock icon again brings the window back.
 
 ## Build it yourself
 
