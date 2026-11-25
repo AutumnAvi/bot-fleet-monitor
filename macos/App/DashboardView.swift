@@ -93,7 +93,9 @@ struct StatusBanner: View {
     private var since: String {
         guard let last = model.lastSuccess else { return "Retrying every \(Int(FleetModel.pollSeconds)) seconds." }
         let at = last.timeIntervalSince1970 * 1000
-        return "Showing what Fleet said at \(Fmt.clock(at)) (\(Fmt.age(at, now: model.now)) ago). Retrying every \(Int(FleetModel.pollSeconds)) seconds."
+        let age = Fmt.age(at, now: model.now)
+        let ago = age == "now" ? "just now" : "\(age) ago"
+        return "Showing what Fleet said at \(Fmt.clock(at)) (\(ago)). Retrying every \(Int(FleetModel.pollSeconds)) seconds."
     }
 }
 
@@ -104,10 +106,10 @@ struct ProblemView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Image(systemName: problem == .unauthorized ? "key.slash" : "wifi.exclamationmark")
+            Image(systemName: icon)
                 .font(.system(size: 30))
                 .foregroundStyle(Theme.fg(.amber))
-            Text(problem == .unauthorized ? "Fleet refused the read key" : "Can't reach Fleet")
+            Text(heading)
                 .font(Theme.F.display)
                 .foregroundStyle(Theme.text)
             Text(problem.detail)
@@ -136,6 +138,22 @@ struct ProblemView: View {
         .card()
         .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var heading: String {
+        switch problem {
+        case .offline: return "Can't reach Fleet"
+        case .unauthorized: return "Fleet refused the read key"
+        default: return problem.title
+        }
+    }
+
+    private var icon: String {
+        switch problem {
+        case .offline: return "wifi.exclamationmark"
+        case .unauthorized: return "key.slash"
+        default: return "exclamationmark.triangle"
+        }
     }
 }
 

@@ -89,10 +89,18 @@ struct TopBar: View {
     }
 
     private var connection: some View {
-        let live = model.problem == nil
+        var label = "Live"
+        var tone = Tone.green
+        if case .some(.offline) = model.problem {
+            label = "Offline"
+            tone = .amber
+        } else if let other = model.problem {
+            label = other.title
+            tone = .red
+        }
         return HStack(spacing: 5) {
-            Dot(tone: live ? .green : .amber, size: 7)
-            Text(live ? "Live" : "Offline").font(.system(size: 12, weight: .medium)).foregroundStyle(Theme.barText2)
+            Dot(tone: tone, size: 7)
+            Text(label).font(.system(size: 12, weight: .medium)).foregroundStyle(Theme.barText2)
         }
         .fixedSize().help(updatedHelp)
     }
