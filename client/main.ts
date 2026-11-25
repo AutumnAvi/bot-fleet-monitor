@@ -1,94 +1,130 @@
-// Bot Fleet dashboard client: it fetches what bots pushed from this Worker and
-// renders it. The only write is the dashboard's own "Save for later" flag; there are
-// no actions that message, start or stop a bot.
+// Bot Fleet v2. Reads what was pushed to this Worker and renders Focus, Board and Feed.
+// The only write is Save for later. Nothing here messages, wakes or polls a bot.
 
+import { fetchActivity, fetchBot, fetchState, setSaved, SignedOutError } from "./api";
+import { h } from "./dom";
 import {
-  activityText,
-  activityTone,
   accountMatches,
-  buildFleetView,
+  needsAttention,
+  openLabel,
+  openUrl,
   toRow,
+  activityText,
   type AccountFilter,
   type BotRowView,
-  type StatusFilter,
 } from "../src/shared/fleet-view";
-import { LIMITS, type ActivityItem, type BotDetail, type FleetResponse } from "../src/shared/model";
-import { STATE_LABEL, lastSeenAt, type Bucket, type DisplayState } from "../src/shared/status";
-import { formatClock, formatFull, formatRelative } from "../src/shared/time";
-import { SignedOutError, fetchActivity, fetchBot, fetchFleet, setSaved } from "./api";
-import { h, icon, type IconName } from "./dom";
+import {
+  ACCOUNT_LABEL,
+  GROUP_ORDER,
+  LEAF_GROUP,
+  LIMITS,
+  type Account,
+  type ActivityItem,
+  type BotDetail,
+  type BotView,
+  type CodingSession,
+  type GrokUsage,
+  type SessionHelper,
+  type StateResponse,
+  type UsageAccount,
+  type UsageMeter,
+} from "../src/shared/model";
+import {
+  attentionBadge,
+  codingNote,
+  displayStatus,
+  helperRuntime,
+  initials,
+  linkSessions,
+  orphanLine,
+  runLabel,
+  sessionBadge,
+  sessionBarColor,
+  sessionProgress,
+  sessionStatusClass,
+  sessionStatusLabel,
+  sessionSummary,
+  sessionTitle,
+  sessionsOwnedBy,
+} from "../src/shared/sessions";
+import { apiRemainingRatio, formatMoney, meterRemaining, primaryMeter, sortUsageAccounts, usageDisplayName, weeklyResetMeter } from "../src/shared/usage";
+import { displayState, lastSeenAt, type DisplayState } from "../src/shared/status";
+import { formatClock, formatFull, formatHeaderClock, formatReset, formatShortAge, isSameDay } from "../src/shared/time";
 
 const REFRESH_MS = 30_000;
-const PREFS_KEY = "botfleet.prefs.v1";
-const LEAF_OPEN_NOTE = "Open works only for work-account bots. Leaf bots use a different Grok Bot login.";
-
-interface DetailState {
-  account: string;
-  id: string;
-  data: BotDetail | null;
-  loading: boolean;
-  error: string | null;
-  /** data-key of the element to focus again when the drawer closes. */
-  returnFocusKey: string | null;
-}
+const PREFS_KEY = "botfleet.prefs.v2";
+type Tab = "focus" | "board" | "feed";
+type FeedFilter = "all" | "needs" | "work" | "leaf";
 
 interface State {
-  data: FleetResponse | null;
-  /** Account filter the activity page in `data` was fetched for (it lags a switch until the refresh lands). */
+  data: StateResponse | null;
   dataAccount: AccountFilter | null;
   error: string | null;
-  lastLoadedAt: number | null;
-  /** serverNow - clientNow, so stale/relative times use the server clock. */
   clockOffset: number;
   account: AccountFilter;
-  filter: StatusFilter;
-  query: string;
+  tab: Tab;
+  feedFilter: FeedFilter;
+  /** `${account}:${id}` of the attention item Focus is showing. */
+  focusId: string | null;
+  detail: BotDetail | null;
+  detailKey: string | null;
   collapsed: Set<string>;
+  groupInit: Set<string>;
+  sessionsOpen: boolean;
+  /** Session ids whose helper rows are expanded. */
+  helpersOpen: Set<string>;
+  /** False until a saved preference exists, so idle groups start collapsed only on a first visit. */
+  collapseDefaults: boolean;
   olderActivity: ActivityItem[];
   olderNext: number | null;
   olderLoaded: boolean;
-  /** Bumped whenever older pages are reset, so in-flight "View older" responses are dropped. */
   olderGen: number;
   loadingOlder: boolean;
-  detail: DetailState | null;
+  grokOpen: Account | null;
 }
 
 const state: State = {
   data: null,
   dataAccount: null,
   error: null,
-  lastLoadedAt: null,
   clockOffset: 0,
   account: "both",
-  filter: "all",
-  query: "",
+  tab: "focus",
+  feedFilter: "all",
+  focusId: null,
+  detail: null,
+  detailKey: null,
   collapsed: new Set(),
+  groupInit: new Set(),
+  sessionsOpen: false,
+  helpersOpen: new Set(),
+  collapseDefaults: true,
   olderActivity: [],
   olderNext: null,
   olderLoaded: false,
   olderGen: 0,
   loadingOlder: false,
-  detail: null,
+  grokOpen: null,
 };
 
 const now = (): number => Date.now() + state.clockOffset;
-
-// ------------------------------------------------------------------ prefs
+const app = (): HTMLElement | null => document.getElementById("app");
 
 function loadPrefs(): void {
   try {
     const raw = localStorage.getItem(PREFS_KEY);
     if (!raw) return;
-    const prefs = JSON.parse(raw) as { account?: string; filter?: string; collapsed?: unknown };
+    state.collapseDefaults = false;
+    const prefs = JSON.parse(raw) as { account?: string; tab?: string; collapsed?: unknown; sessionsOpen?: boolean };
     if (prefs.account === "both" || prefs.account === "work" || prefs.account === "leaf") state.account = prefs.account;
-    if (["all", "needs_me", "working", "idle", "stuck"].includes(prefs.filter ?? "")) {
-      state.filter = prefs.filter as StatusFilter;
-    }
+    if (prefs.tab === "focus" || prefs.tab === "board" || prefs.tab === "feed") state.tab = prefs.tab;
     if (Array.isArray(prefs.collapsed)) {
-      state.collapsed = new Set(prefs.collapsed.filter((x): x is string => typeof x === "string"));
+      state.collapsed = new Set(prefs.collapsed.filter((item): item is string => typeof item === "string"));
+      state.groupInit = new Set(state.collapsed);
     }
+    if (prefs.sessionsOpen === true) state.sessionsOpen = true;
   } catch {
-    // Storage unavailable or corrupt: use defaults.
+    // Preferences are a convenience.
   }
 }
 
@@ -96,689 +132,52 @@ function savePrefs(): void {
   try {
     localStorage.setItem(
       PREFS_KEY,
-      JSON.stringify({ account: state.account, filter: state.filter, collapsed: [...state.collapsed] }),
-    );
-  } catch {
-    // Ignore: preferences are a convenience only.
-  }
-}
-
-// ------------------------------------------------------------------ static layout
-
-const FILTERS: { id: StatusFilter; label: string }[] = [
-  { id: "all", label: "All" },
-  { id: "needs_me", label: "Needs me" },
-  { id: "working", label: "Working" },
-  { id: "idle", label: "Idle" },
-  { id: "stuck", label: "Stuck" },
-];
-
-const TILES: { id: Bucket; label: string; icon: IconName }[] = [
-  { id: "needs_me", label: "Needs me", icon: "needsMe" },
-  { id: "working", label: "Working", icon: "play" },
-  { id: "idle", label: "Idle", icon: "idle" },
-  { id: "stuck", label: "Stuck", icon: "stuck" },
-];
-
-const refs = {
-  search: null as HTMLInputElement | null,
-  chips: new Map<StatusFilter, HTMLButtonElement>(),
-  tiles: new Map<Bucket, { button: HTMLButtonElement; count: HTMLElement }>(),
-  account: null as HTMLSelectElement | null,
-  fleet: null as HTMLElement | null,
-  feed: null as HTMLElement | null,
-  statusLine: null as HTMLElement | null,
-  detailRoot: null as HTMLElement | null,
-};
-
-function buildLayout(root: HTMLElement): void {
-  const search = h("input", {
-    type: "search",
-    placeholder: "Search bots...",
-    "aria-label": "Search bots",
-    autocomplete: "off",
-    spellcheck: "false",
-  });
-  search.value = state.query;
-  search.addEventListener("input", () => {
-    state.query = search.value;
-    renderFleet();
-  });
-  refs.search = search;
-
-  const chips = h("div", { class: "chips", role: "group", "aria-label": "Filter by status" });
-  for (const f of FILTERS) {
-    const chip = h("button", { type: "button", class: "chip" }, f.label);
-    chip.addEventListener("click", () => setFilter(f.id));
-    refs.chips.set(f.id, chip);
-    chips.append(chip);
-  }
-
-  const account = h(
-    "select",
-    { "aria-label": "Account" },
-    h("option", { value: "both" }, "Work | Leaf"),
-    h("option", { value: "work" }, "Work"),
-    h("option", { value: "leaf" }, "Leaf"),
-  );
-  account.value = state.account;
-  account.addEventListener("change", () => {
-    state.account = account.value as AccountFilter;
-    savePrefs();
-    resetOlderActivity();
-    renderAll();
-    void refresh(); // the feed's first page is fetched per account
-  });
-  refs.account = account;
-
-  const tiles = h("section", { class: "tiles", "aria-label": "Counts" });
-  for (const t of TILES) {
-    const count = h("span", { class: "tile-count" }, "–");
-    const button = h(
-      "button",
-      { type: "button", class: `tile tone-${t.id}`, title: `Show only ${t.label}` },
-      h("span", { class: "tile-icon" }, icon(t.icon)),
-      h("span", { class: "tile-text" }, h("span", { class: "tile-label" }, t.label), count),
-    );
-    button.addEventListener("click", () => setFilter(state.filter === t.id ? "all" : t.id));
-    refs.tiles.set(t.id, { button, count });
-    tiles.append(button);
-  }
-
-  refs.fleet = h("main", { class: "card fleet", id: "fleet", "aria-label": "Bots" });
-  refs.feed = h("aside", { class: "card feed", "aria-label": "Recent activity" });
-  refs.statusLine = h("p", { class: "status-line", role: "status" });
-  refs.detailRoot = h("div", { id: "detail-root" });
-
-  const logout = h(
-    "form",
-    { method: "post", action: "/logout", class: "logout" },
-    h("button", { type: "submit", class: "link-btn" }, "Sign out"),
-  );
-
-  root.replaceChildren(
-    h(
-      "div",
-      { class: "page" },
-      h(
-        "header",
-        { class: "top" },
-        h("h1", {}, "Bot Fleet"),
-        h(
-          "div",
-          { class: "top-right" },
-          h("label", { class: "account-switch" }, icon("person"), account, icon("chevronDown", "icon chev")),
-          logout,
-        ),
-        h("div", { class: "controls" }, h("label", { class: "search" }, icon("search"), search), chips),
-      ),
-      tiles,
-      h("div", { class: "layout" }, refs.fleet, refs.feed),
-      refs.statusLine,
-    ),
-    refs.detailRoot,
-  );
-}
-
-function setFilter(filter: StatusFilter): void {
-  state.filter = filter;
-  savePrefs();
-  renderFleet();
-}
-
-// Re-renders replace DOM nodes; interactive elements carry a stable data-key so
-// keyboard focus survives refreshes, group toggles and closing the drawer.
-function activeKey(within?: Element): string | null {
-  const el = document.activeElement;
-  if (!(el instanceof HTMLElement) || (within && !within.contains(el))) return null;
-  return el.dataset.key ?? null;
-}
-
-function focusByKey(key: string | null, within: ParentNode = document): boolean {
-  if (key === null) return false;
-  const el = Array.from(within.querySelectorAll<HTMLElement>("[data-key]")).find((e) => e.dataset.key === key);
-  el?.focus({ preventScroll: true });
-  return el !== undefined;
-}
-
-// ------------------------------------------------------------------ rendering
-
-const DOT_CLASS: Record<DisplayState, string> = {
-  waiting_user: "dot amber",
-  working: "dot green",
-  idle: "dot gray",
-  unknown: "dot hollow",
-  error: "dot red",
-  stale: "dot red stale",
-};
-
-function timeEl(at: number | null): HTMLElement {
-  if (at === null) return h("span", { class: "when muted" }, "—");
-  return h(
-    "time",
-    { class: "when", datetime: new Date(at).toISOString(), title: formatFull(at) },
-    formatRelative(at, now()),
-  );
-}
-
-function openControl(row: BotRowView, extraClass = ""): HTMLElement {
-  if (row.openUrl === null) {
-    return h(
-      "button",
-      {
-        type: "button",
-        class: `open-btn ${extraClass}`,
-        disabled: true,
-        title: LEAF_OPEN_NOTE,
-        "aria-label": `Open ${row.bot.name} (not available for Leaf bots)`,
-      },
-      "Open",
-    );
-  }
-  return h(
-    "a",
-    {
-      class: `open-btn ${extraClass}`,
-      href: row.openUrl,
-      "aria-label": `Open ${row.bot.name} in Grok Bot`,
-      "data-key": `${extraClass ? "detail-open" : "open"}:${row.bot.account}/${row.bot.id}`,
-    },
-    "Open",
-    icon("chevronRight", "icon chev-r"),
-  );
-}
-
-function rowEl(row: BotRowView, showAccountTag: boolean): HTMLElement {
-  const { bot } = row;
-  const name = h("span", { class: "name" }, h("span", { class: "name-text" }, bot.name));
-  if (showAccountTag && bot.account === "leaf") name.append(h("span", { class: "tag leaf" }, "Leaf"));
-  if (bot.unread > 0) {
-    name.append(
-      h("span", {
-        class: "unread-dot",
-        title: `${bot.unread} message${bot.unread === 1 ? "" : "s"} since your last reply`,
-        "aria-label": `${bot.unread} unread`,
-        role: "img",
+      JSON.stringify({
+        account: state.account,
+        tab: state.tab,
+        collapsed: [...state.collapsed],
+        sessionsOpen: state.sessionsOpen,
       }),
     );
-  }
-  const main = h(
-    "button",
-    {
-      type: "button",
-      class: `row-main state-${row.state}`,
-      "aria-label": `${bot.name}: ${STATE_LABEL[row.state]}. ${row.stepText}. Show details`,
-      "data-key": `row:${bot.account}/${bot.id}`,
-    },
-    h("span", { class: DOT_CLASS[row.state], title: STATE_LABEL[row.state] }),
-    name,
-    h("span", { class: "step" }, row.stepText),
-    timeEl(lastSeenAt(bot)),
-  );
-  main.addEventListener("click", () => openDetail(bot.account, bot.id, `row:${bot.account}/${bot.id}`));
-  return h("li", { class: "row" }, main, saveControl(row), openControl(row));
-}
-
-/** "Later" parks a bot in Save for later; "Move back" returns it. Dashboard-only. */
-function saveControl(row: BotRowView, inDrawer = false): HTMLElement {
-  const { bot } = row;
-  const saved = bot.savedAt !== null;
-  const label = saved ? "Move back" : inDrawer ? "Save for later" : "Later";
-  const button = h(
-    "button",
-    {
-      type: "button",
-      class: `save-btn${saved ? " saved" : ""}${inDrawer ? " in-drawer" : ""}`,
-      title: saved ? "Move back out of Save for later" : "Save for later",
-      "aria-label": saved ? `Move ${bot.name} back out of Save for later` : `Save ${bot.name} for later`,
-      "data-key": `${inDrawer ? "detail-save" : "save"}:${bot.account}/${bot.id}`,
-    },
-    icon("bookmark", "icon bm"),
-    label,
-  );
-  button.addEventListener("click", () => void toggleSaved(bot.account, bot.id, !saved));
-  return button;
-}
-
-async function toggleSaved(account: string, id: string, saved: boolean): Promise<void> {
-  const bot = state.data?.bots.find((b) => b.account === account && b.id === id);
-  if (!bot) return;
-  const previous = bot.savedAt;
-  bot.savedAt = saved ? now() : null; // optimistic; the refresh below brings the server's truth
-  if (state.detail?.data && state.detail.account === account && state.detail.id === id) {
-    state.detail.data.bot.savedAt = bot.savedAt;
-  }
-  renderAll();
-  try {
-    await setSaved(account, id, saved);
-  } catch (err) {
-    if (err instanceof SignedOutError) return signedOut();
-    bot.savedAt = previous;
-    state.error = "Could not update Save for later. Try again.";
-    renderAll();
-    return;
-  }
-  void refresh();
-}
-
-type SectionTone = "attention" | "saved";
-
-function groupEl(key: string, title: string, rows: BotRowView[], options: { tone?: SectionTone; emptyText?: string | null; showAccountTag: boolean }): HTMLElement {
-  const collapsed = state.collapsed.has(key);
-  const listId = `group-${key.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}`;
-  const toggle = h(
-    "button",
-    {
-      type: "button",
-      class: "group-toggle",
-      "aria-expanded": String(!collapsed),
-      "aria-controls": listId,
-      "data-key": `toggle:${key}`,
-    },
-    h("span", { class: "group-title" }, title),
-    options.tone === "attention" ? h("span", { class: "dot amber small", "aria-hidden": "true" }) : null,
-    options.tone === "saved" ? icon("bookmark", "icon bm small") : null,
-    h("span", { class: "group-count" }, String(rows.length)),
-    icon(collapsed ? "chevronDown" : "chevronUp", "icon chev"),
-  );
-  toggle.addEventListener("click", () => {
-    if (state.collapsed.has(key)) state.collapsed.delete(key);
-    else state.collapsed.add(key);
-    savePrefs();
-    renderFleet();
-  });
-  const list = h("ul", { class: "rows", id: listId, hidden: collapsed });
-  if (rows.length === 0 && options.emptyText) list.append(h("li", { class: "row-empty" }, options.emptyText));
-  for (const row of rows) list.append(rowEl(row, options.showAccountTag));
-  const toneClass = options.tone === "attention" ? " needs-me" : options.tone === "saved" ? " saved-later" : "";
-  return h("section", { class: `group${toneClass}` }, h("h2", { class: "group-head" }, toggle), list);
-}
-
-function renderTiles(counts: Record<Bucket, number> | null): void {
-  for (const [id, ref] of refs.tiles) {
-    ref.count.textContent = counts ? String(counts[id]) : "–";
-    ref.button.setAttribute("aria-pressed", String(state.filter === id));
-  }
-  for (const [id, chip] of refs.chips) {
-    chip.classList.toggle("active", state.filter === id);
-    chip.setAttribute("aria-pressed", String(state.filter === id));
-  }
-}
-
-function renderFleet(): void {
-  const fleet = refs.fleet;
-  if (!fleet) return;
-  if (!state.data) {
-    renderTiles(null);
-    fleet.replaceChildren(h("p", { class: "empty" }, state.error ?? "Loading…"));
-    return;
-  }
-  const view = buildFleetView(state.data.bots, {
-    account: state.account,
-    filter: state.filter,
-    query: state.query,
-    now: now(),
-  });
-  renderTiles(view.counts);
-
-  const showAccountTag = state.account === "both";
-  const sections: HTMLElement[] = [];
-  const attentionFilter = state.filter === "needs_me" || state.filter === "stuck";
-  if (view.attention && (view.attention.length > 0 || attentionFilter)) {
-    sections.push(
-      groupEl("needs-me", "Needs my attention", view.attention, {
-        tone: "attention",
-        emptyText: state.query.trim() === "" ? "Nothing needs you right now." : null,
-        showAccountTag,
-      }),
-    );
-  }
-  if (view.saved.length > 0) {
-    sections.push(groupEl("saved", "Save for later", view.saved, { tone: "saved", showAccountTag }));
-  }
-  for (const group of view.groups) {
-    sections.push(groupEl(`g:${group.name}`, group.name, group.rows, { emptyText: group.emptyText, showAccountTag: false }));
-  }
-  const needsMeEmptyShown = attentionFilter && state.query.trim() === "";
-  if (view.shown === 0 && (state.query.trim() !== "" || state.filter !== "all") && !needsMeEmptyShown) {
-    sections.push(h("p", { class: "empty" }, "No bots match."));
-  }
-  const focused = activeKey(fleet);
-  fleet.replaceChildren(...sections);
-  focusByKey(focused, fleet);
-}
-
-/** The loaded feed page belongs to the selected account (false right after a switch). */
-function feedReady(): boolean {
-  return state.data !== null && state.dataAccount === state.account;
-}
-
-function activityItems(): { items: ActivityItem[]; next: number | null } {
-  if (!feedReady()) return { items: [], next: null }; // never page with another account's cursor
-  const first = state.data?.activity.items ?? [];
-  const lastSeq = first[first.length - 1]?.seq ?? Infinity;
-  const older = state.olderActivity.filter((item) => item.seq < lastSeq);
-  const next = state.olderLoaded ? state.olderNext : (state.data?.activity.nextBefore ?? null);
-  return { items: [...first, ...older], next };
-}
-
-function renderFeed(): void {
-  const feed = refs.feed;
-  if (!feed) return;
-  const { items, next } = activityItems();
-  const visible = items.filter((item) => accountMatches(item.account, state.account));
-  const list = h("ol", { class: "feed-list" });
-  if (visible.length === 0) {
-    list.append(
-      h("li", { class: "feed-empty" }, feedReady() ? "No activity yet. Bots add to this feed when they report." : "Loading…"),
-    );
-  }
-  const t = now();
-  for (const item of visible) {
-    const button = h(
-      "button",
-      {
-        type: "button",
-        class: "feed-btn",
-        title: `${item.botName} ${activityText(item)}`,
-        "data-key": `feed:${item.seq}`,
-      },
-      h("time", { class: "feed-time", datetime: new Date(item.at).toISOString(), title: formatFull(item.at) }, formatClock(item.at, t)),
-      h("span", { class: `dot small ${activityTone(item.kind)}`, "aria-hidden": "true" }),
-      h("span", { class: "feed-text" }, h("strong", {}, item.botName), " ", activityText(item)),
-    );
-    button.addEventListener("click", () => openDetail(item.account, item.botId, `feed:${item.seq}`));
-    list.append(h("li", { class: "feed-item" }, button));
-  }
-  const more =
-    next !== null
-      ? h(
-          "button",
-          { type: "button", class: "feed-more", disabled: state.loadingOlder, "data-key": "feed-more" },
-          state.loadingOlder ? "Loading…" : "View older activity…",
-        )
-      : null;
-  more?.addEventListener("click", () => void loadOlder(next));
-  const parts: HTMLElement[] = [h("h2", { class: "feed-head" }, "Activity"), list];
-  if (more) parts.push(more);
-  const focused = activeKey(feed);
-  const scrollTop = feed.querySelector(".feed-list")?.scrollTop ?? 0;
-  feed.replaceChildren(...parts);
-  list.scrollTop = scrollTop; // keep the reader's place across refreshes and "View older"
-  focusByKey(focused, feed);
-}
-
-function renderStatusLine(): void {
-  if (!refs.statusLine) return;
-  const parts: string[] = [];
-  if (state.lastLoadedAt !== null) parts.push(`Updated ${formatClock(state.lastLoadedAt, now())} (Asia/Hebron)`);
-  if (state.error && state.data) parts.push(state.error);
-  parts.push("Shows only what bots pushed. Never wakes or messages a bot.");
-  refs.statusLine.textContent = parts.join(" · ");
-}
-
-function renderAll(): void {
-  renderFleet();
-  renderFeed();
-  renderStatusLine();
-  renderDetail();
-}
-
-// ------------------------------------------------------------------ detail view
-
-function parseHash(): { account: string; id: string } | null {
-  const match = /^#bot\/(work|leaf)\/(.+)$/.exec(location.hash);
-  if (!match?.[1] || !match[2]) return null;
-  try {
-    return { account: match[1], id: decodeURIComponent(match[2]) };
   } catch {
-    return null;
+    // Ignore.
   }
 }
 
-function openDetail(account: string, id: string, fromKey: string | null): void {
-  const hash = `#bot/${account}/${encodeURIComponent(id)}`;
-  if (location.hash !== hash) history.pushState({ detail: true }, "", hash);
-  showDetail(account, id, fromKey);
+function tabFromHash(): Tab | null {
+  const hash = location.hash.replace(/^#/, "");
+  if (hash === "focus" || hash === "board" || hash === "feed") return hash;
+  return null;
 }
-
-function showDetail(account: string, id: string, returnFocusKey: string | null): void {
-  const same = state.detail?.account === account && state.detail.id === id;
-  if (!same) {
-    state.detail = { account, id, data: null, loading: true, error: null, returnFocusKey };
-  }
-  renderDetail(true);
-  void loadDetail();
-}
-
-function closeDetail(): void {
-  if (!state.detail) return;
-  if ((history.state as { detail?: boolean } | null)?.detail) {
-    history.back();
-    return;
-  }
-  history.replaceState(null, "", location.pathname + location.search);
-  hideDetail();
-}
-
-function hideDetail(): void {
-  const key = state.detail?.returnFocusKey ?? null;
-  state.detail = null;
-  renderDetail();
-  focusByKey(key);
-}
-
-let detailLoadSeq = 0;
-async function loadDetail(): Promise<void> {
-  const detail = state.detail;
-  if (!detail) return;
-  const seq = ++detailLoadSeq;
-  try {
-    const data = await fetchBot(detail.account, detail.id);
-    // Drop stale responses: the drawer changed, or a newer load was started.
-    if (state.detail !== detail || seq !== detailLoadSeq) return;
-    detail.data = data;
-    detail.error = data ? null : "This bot is not on the roster.";
-  } catch (err) {
-    if (err instanceof SignedOutError) return signedOut();
-    if (state.detail !== detail || seq !== detailLoadSeq) return;
-    detail.error = "Could not load details. Retrying with the next refresh.";
-  }
-  detail.loading = false;
-  renderDetail();
-}
-
-function section(title: string, ...children: (Node | string | null)[]): HTMLElement {
-  return h("section", { class: "detail-section" }, h("h3", {}, title), ...children);
-}
-
-function renderDetail(focus = false): void {
-  const root = refs.detailRoot;
-  if (!root) return;
-  const detail = state.detail;
-  document.body.classList.toggle("has-detail", detail !== null);
-  if (!detail) {
-    root.replaceChildren();
-    return;
-  }
-  const t = now();
-  const fromList = state.data?.bots.find((b) => b.account === detail.account && b.id === detail.id) ?? null;
-  const bot = detail.data?.bot ?? fromList;
-  const row = bot ? toRow(bot, t) : null;
-
-  const close = h(
-    "button",
-    { type: "button", class: "icon-btn", "aria-label": "Close details", "data-key": "detail-close" },
-    icon("close"),
-  );
-  close.addEventListener("click", closeDetail);
-
-  const body: (HTMLElement | null)[] = [];
-  const lastReport = bot ? lastSeenAt(bot) : null;
-  if (row && bot) {
-    body.push(
-      h("p", { class: `detail-state state-${row.state}` }, h("strong", {}, STATE_LABEL[row.state]), " · ", row.stepText),
-      h(
-        "dl",
-        { class: "detail-meta" },
-        h("dt", {}, "Last report"),
-        h("dd", {}, lastReport === null ? "Never" : `${formatFull(lastReport)} (${formatRelative(lastReport, t)})`),
-        h("dt", {}, "Account"),
-        h("dd", {}, `${bot.account === "work" ? "Work" : "Leaf"} · ${bot.group}`),
-      ),
-      h(
-        "div",
-        { class: "detail-actions" },
-        row.openUrl ? openControl(row, "primary") : null,
-        saveControl(row, true),
-      ),
-      row.openUrl ? null : h("p", { class: "muted small" }, LEAF_OPEN_NOTE),
-      bot.savedAt !== null
-        ? h(
-            "p",
-            { class: "muted small" },
-            `Saved for later ${formatRelative(bot.savedAt, t)}. It comes back to Needs my attention when it reports Needs me or Stuck, or when you reply to it.`,
-          )
-        : null,
-    );
-  }
-
-  if (detail.error && !detail.data) {
-    body.push(h("p", { class: "empty" }, detail.error));
-  } else if (!detail.data) {
-    body.push(h("p", { class: "empty" }, "Loading…"));
-  } else {
-    const d = detail.data;
-    body.push(
-      section(
-        "What you need to know",
-        d.summary
-          ? h("p", { class: "summary" }, d.summary)
-          : h("p", { class: "empty-inline" }, "This bot hasn't pushed a summary yet."),
-        d.bot.summaryAt !== null && d.summary
-          ? h("p", { class: "muted small" }, `Updated ${formatFull(d.bot.summaryAt)} (${formatRelative(d.bot.summaryAt, t)})`)
-          : null,
-      ),
-    );
-    const messages = h("ol", { class: "messages" });
-    for (const m of d.messages) {
-      messages.append(
-        h(
-          "li",
-          { class: "message" },
-          h("time", { datetime: new Date(m.at).toISOString(), title: formatFull(m.at) }, formatClock(m.at, t)),
-          h("p", {}, m.text),
-        ),
-      );
-    }
-    const replyNote =
-      d.bot.lastAviReplyAt !== null
-        ? h("p", { class: "muted small" }, `Your last reply was marked ${formatFull(d.bot.lastAviReplyAt)}.`)
-        : null;
-    const capped = d.messages.length >= LIMITS.messagesPerBot;
-    body.push(
-      section(
-        d.messages.length === 0
-          ? "Messages since your last reply"
-          : capped
-            ? `Latest ${d.messages.length} messages since your last reply`
-            : `Messages since your last reply (${d.messages.length})`,
-        capped
-          ? h("p", { class: "muted small" }, `Only the newest ${LIMITS.messagesPerBot} are kept. Open the chat for anything older.`)
-          : null,
-        d.messages.length > 0 ? messages : h("p", { class: "empty-inline" }, "No messages since your last reply."),
-        replyNote,
-      ),
-    );
-  }
-
-  const title = bot?.name ?? detail.id;
-  const dialog = h(
-    "aside",
-    { class: "drawer", role: "dialog", "aria-modal": "true", "aria-labelledby": "detail-title", tabindex: "-1" },
-    h(
-      "header",
-      { class: "drawer-head" },
-      row ? h("span", { class: DOT_CLASS[row.state] }) : null,
-      h("h2", { id: "detail-title" }, title),
-      close,
-    ),
-    h("div", { class: "drawer-body" }, ...body),
-  );
-  const overlay = h("div", { class: "overlay" });
-  overlay.addEventListener("click", closeDetail);
-
-  // Re-rendering on refresh must not steal focus or jump the scroll position.
-  const hadFocus = root.contains(document.activeElement);
-  const focused = activeKey(root);
-  const scrollTop = root.querySelector(".drawer-body")?.scrollTop ?? 0;
-  root.replaceChildren(overlay, dialog);
-  const newBody = root.querySelector(".drawer-body");
-  if (newBody) newBody.scrollTop = scrollTop;
-  if (focus) close.focus();
-  else if (hadFocus && !focusByKey(focused, dialog)) dialog.focus();
-}
-
-/** Keeps Tab inside the open detail dialog. */
-function trapFocus(event: KeyboardEvent): void {
-  const dialog = refs.detailRoot?.querySelector<HTMLElement>(".drawer");
-  if (!dialog) return;
-  const focusable = Array.from(
-    dialog.querySelectorAll<HTMLElement>('a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])'),
-  );
-  const first = focusable[0];
-  const last = focusable[focusable.length - 1];
-  if (!first || !last) return;
-  const active = document.activeElement;
-  if (event.shiftKey && (active === first || active === dialog || !dialog.contains(active))) {
-    event.preventDefault();
-    last.focus();
-  } else if (!event.shiftKey && (active === last || !dialog.contains(active))) {
-    event.preventDefault();
-    first.focus();
-  }
-}
-
-// ------------------------------------------------------------------ data loading
 
 function signedOut(): void {
   location.assign("/login");
 }
 
-function resetOlderActivity(): void {
+function resetOlder(): void {
   state.olderActivity = [];
   state.olderNext = null;
   state.olderLoaded = false;
   state.olderGen += 1;
 }
 
-/**
- * Keeps "View older" pages consistent across refreshes: items that slide off the
- * new first page move into the older list. If more than a page of events arrived
- * since the last refresh, the two no longer touch, so paging restarts instead of
- * leaving a silent gap.
- */
-function carryOlderActivity(prev: FleetResponse | null, next: FleetResponse, nextAccount: AccountFilter): void {
-  // Also while the first "View older" is in flight: its page continues from the
-  // previous first page, so that page's tail must be kept too. Never carry across
-  // an account switch (the switch already reset the older pages).
-  if ((!state.olderLoaded && !state.loadingOlder) || !prev || state.dataAccount !== nextAccount) return;
+function carryOlder(prev: StateResponse | null, next: StateResponse, account: AccountFilter): void {
+  if ((!state.olderLoaded && !state.loadingOlder) || !prev || state.dataAccount !== account) return;
   const known = [...prev.activity.items, ...state.olderActivity];
   const newest = known.reduce((max, item) => Math.max(max, item.seq), -Infinity);
   const page = next.activity.items;
   const oldestNew = page[page.length - 1]?.seq;
   if (page.length >= LIMITS.activityPageSize && oldestNew !== undefined && oldestNew > newest) {
-    resetOlderActivity();
+    resetOlder();
     return;
   }
   const seen = new Set<number>();
-  state.olderActivity = known
-    .filter((item) => !seen.has(item.seq) && seen.add(item.seq))
-    .sort((a, b) => b.seq - a.seq);
+  state.olderActivity = known.filter((item) => !seen.has(item.seq) && seen.add(item.seq)).sort((a, b) => b.seq - a.seq);
 }
 
 let refreshing = false;
 let refreshAgain = false;
+
 async function refresh(): Promise<void> {
   if (refreshing) {
     refreshAgain = true;
@@ -787,40 +186,1166 @@ async function refresh(): Promise<void> {
   refreshing = true;
   const account = state.account;
   try {
-    const data = await fetchFleet(account);
+    const data = await fetchState(account);
     if (account === state.account) {
-      carryOlderActivity(state.data, data, account);
+      carryOlder(state.data, data, account);
       state.clockOffset = data.now - Date.now();
       state.data = data;
       state.dataAccount = account;
       state.error = null;
-      state.lastLoadedAt = data.now;
     } else {
-      refreshAgain = true; // switched accounts mid-request: fetch again for the new one
+      refreshAgain = true;
     }
   } catch (err) {
     if (err instanceof SignedOutError) return signedOut();
-    state.error = state.data ? "Refresh failed; showing the last data." : "Could not load the fleet. Retrying…";
+    state.error = state.data ? "Refresh failed. Showing the last data." : "Could not load Bot Fleet. Retrying…";
   } finally {
     refreshing = false;
   }
-  renderAll();
-  if (state.detail) void loadDetail();
+  render();
+  void loadDetail(true);
   if (refreshAgain) {
     refreshAgain = false;
     void refresh();
   }
 }
 
+async function loadDetail(force = false): Promise<void> {
+  const current = focused();
+  if (!current) {
+    state.detail = null;
+    state.detailKey = null;
+    return;
+  }
+  const key = `${current.bot.account}:${current.bot.id}`;
+  if (!force && state.detailKey === key && state.detail) return;
+  state.detailKey = key;
+  try {
+    const detail = await fetchBot(current.bot.account, current.bot.id);
+    if (state.detailKey === key) {
+      state.detail = detail;
+      render();
+    }
+  } catch (err) {
+    if (err instanceof SignedOutError) signedOut();
+  }
+}
+
+async function save(bot: BotView, saved: boolean): Promise<void> {
+  try {
+    await setSaved(bot.account, bot.id, saved);
+    if (saved && state.focusId === `${bot.account}:${bot.id}`) state.focusId = null;
+    await refresh();
+  } catch (err) {
+    if (err instanceof SignedOutError) signedOut();
+    else {
+      state.error = "Couldn't update Save for later.";
+      render();
+    }
+  }
+}
+
+function visibleBots(): BotRowView[] {
+  const data = state.data;
+  if (!data) return [];
+  return data.bots.filter((bot) => accountMatches(bot.account, state.account)).map((bot) => toRow(bot, now()));
+}
+
+function byRecent(a: BotRowView, b: BotRowView): number {
+  return (b.bot.statusAt ?? 0) - (a.bot.statusAt ?? 0) || a.bot.name.localeCompare(b.bot.name, "en");
+}
+
+function attention(): BotRowView[] {
+  return visibleBots()
+    .filter((row) => row.bot.savedAt === null && needsAttention(row.bucket))
+    .sort(byRecent);
+}
+
+function savedRows(): BotRowView[] {
+  return visibleBots()
+    .filter((row) => row.bot.savedAt !== null)
+    .sort((a, b) => (b.bot.savedAt ?? 0) - (a.bot.savedAt ?? 0));
+}
+
+function rowKey(row: BotRowView): string {
+  return `${row.bot.account}:${row.bot.id}`;
+}
+
+function focused(): BotRowView | null {
+  const queue = attention();
+  if (queue.length === 0) return null;
+  return queue.find((row) => rowKey(row) === state.focusId) ?? queue[0] ?? null;
+}
+
+function advance(delta: number): void {
+  const queue = attention();
+  if (queue.length < 2) return;
+  const current = focused();
+  const index = Math.max(0, current ? queue.findIndex((row) => rowKey(row) === rowKey(current)) : 0);
+  const next = queue[(index + delta + queue.length) % queue.length];
+  if (!next) return;
+  state.focusId = rowKey(next);
+  state.detail = null;
+  state.detailKey = null;
+  render();
+  void loadDetail();
+}
+
+function jumpTo(bot: BotView): void {
+  state.tab = "focus";
+  state.focusId = `${bot.account}:${bot.id}`;
+  history.replaceState(null, "", "#focus");
+  state.detail = null;
+  state.detailKey = null;
+  savePrefs();
+  render();
+  void loadDetail();
+}
+
+function accountTag(account: Account): HTMLElement {
+  return h("span", { class: `acc ${account === "work" ? "a-w" : "a-a"}` }, ACCOUNT_LABEL[account]);
+}
+
+function dot(color: string): HTMLElement {
+  return h("span", { class: "dot", style: `background:${color}` });
+}
+
+function stateColor(display: DisplayState): string {
+  switch (display) {
+    case "waiting_user":
+      return "var(--amber)";
+    case "working":
+      return "var(--blue)";
+    case "error":
+      return "var(--red)";
+    case "stale":
+      return "#f0a3a5";
+    case "idle":
+    case "unknown":
+      return "var(--gray)";
+  }
+}
+
+function attentionLabel(display: DisplayState): { text: string; tag: string } {
+  switch (display) {
+    case "error":
+      return { text: "STUCK", tag: "t-red" };
+    case "stale":
+      return { text: "STALE", tag: "t-gray" };
+    default:
+      return { text: "NEEDS ME", tag: "t-amb" };
+  }
+}
+
+function tone(display: DisplayState): string {
+  if (display === "error") return "tone-error";
+  if (display === "stale") return "tone-stale";
+  return "tone-wait";
+}
+
+function age(bot: BotView): string {
+  const at = lastSeenAt(bot);
+  return at === null ? "" : formatShortAge(at, now());
+}
+
+function httpsUrl(value: string | null): string | null {
+  if (!value) return null;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" ? url.href : null;
+  } catch {
+    return null;
+  }
+}
+
+function prLabel(url: string): string {
+  const match = /\/pull\/(\d+)/.exec(url);
+  return match?.[1] ? `PR #${match[1]}` : "Pull request";
+}
+
+function prFor(bot: BotView): string | null {
+  const data = state.data;
+  if (!data) return null;
+  for (const session of sessionsOwnedBy(data.sessions, bot.account, bot.id)) {
+    const url = httpsUrl(session.prUrl);
+    if (url) return url;
+  }
+  return null;
+}
+
+function openLink(bot: BotView, primary = false): HTMLAnchorElement {
+  return h("a", { class: primary ? "btn p" : "btn", href: openUrl(bot) }, openLabel(bot.account));
+}
+
+function laterButton(bot: BotView, label = "Save for later"): HTMLButtonElement {
+  return h("button", { type: "button", class: "btn", onclick: () => void save(bot, true) }, `🔖 ${label}`);
+}
+
+function groupName(group: string): string {
+  return group === LEAF_GROUP ? "Admin bots" : group;
+}
+
+function remainingColor(left: number | null, group: UsageAccount["group"]): string {
+  if (left === null) return group === "api" ? "var(--purple)" : "var(--green)";
+  if (group === "api") return left < 25 ? "var(--red)" : "var(--purple)";
+  if (group === "cursor") return left < 20 ? "var(--red)" : "var(--blue)";
+  if (left < 25) return "var(--red)";
+  if (left < 40) return "var(--amber)";
+  return "var(--green)";
+}
+
+function remainingLevel(left: number | null): "" | "warn" | "bad" {
+  if (left === null) return "";
+  if (left < 25) return "bad";
+  if (left < 40) return "warn";
+  return "";
+}
+
+function meterCaption(meter: UsageMeter): string {
+  if (meter.state === "no_limit") return `${meter.label} no limit`;
+  if (meter.pctUsed === null) return meter.label;
+  return `${meter.label} ${Math.round(meter.pctUsed)}% used`;
+}
+
+function usageCell(account: UsageAccount): HTMLElement {
+  const clock = now();
+  const primary = primaryMeter(account);
+  const apiRatio = account.group === "api" ? apiRemainingRatio(account) : null;
+  const left = apiRatio ?? (primary ? meterRemaining(primary) : null);
+  const noLimit = primary?.state === "no_limit" && apiRatio === null;
+  const spend = formatMoney(account.spend);
+  const remaining = formatMoney(account.remaining);
+  const granted = formatMoney(account.granted);
+  const weekly = weeklyResetMeter(account, clock);
+  const resetAt = weekly?.resetAt ?? (account.group === "api" ? account.expiresAt : primary?.resetAt) ?? null;
+  const big = noLimit ? "No limit" : left !== null ? `${Math.round(left)}%` : (remaining ?? spend ?? "–");
+  const small = noLimit ? "5h" : left !== null ? "left" : null;
+  const extra = account.meters
+    .filter((meter) => meter !== primary)
+    .map((meter) => {
+      const reset = meter.resetAt !== null && !(isWeekly(meter) && weekly === null) ? formatReset(meter.resetAt, clock) : "";
+      return reset && !isWeekly(meter) ? `${meterCaption(meter)} · ${reset}` : meterCaption(meter);
+    });
+  if (weekly) extra.push(`resets ${formatReset(weekly.resetAt ?? clock, clock)}`);
+  if (account.group === "api" && remaining && granted) extra.unshift(`${remaining} / ${granted}`);
+  else if (spend && big !== spend) extra.unshift(spend);
+  if (account.expiresAt !== null && account.group === "api") extra.push(`expires ${formatReset(account.expiresAt, clock)}`);
+  if (account.routingVerified === false) extra.push("unverified");
+  if (account.note) extra.push(account.note);
+  return h(
+    "div",
+    { class: `u${account.group === "api" ? " api" : ""}` },
+    h("div", { class: "n" }, usageDisplayName(account), resetAt !== null ? h("em", {}, formatReset(resetAt, clock)) : null),
+    h("div", { class: `v ${remainingLevel(left)}` }, big, small ? h("small", {}, ` ${small}`) : null),
+    h("div", { class: "b" }, h("i", { style: `width:${left ?? (noLimit ? 100 : 0)}%;background:${remainingColor(left, account.group)}` })),
+    extra.length ? h("div", { class: "sub" }, extra.join(" · ")) : null,
+  );
+}
+
+function isWeekly(meter: UsageMeter): boolean {
+  return /week/i.test(`${meter.id} ${meter.label}`);
+}
+
+function grokCell(account: Account, usage: GrokUsage | undefined): HTMLElement {
+  const label = `Grok · ${ACCOUNT_LABEL[account]}`;
+  const open = state.grokOpen === account;
+  const reset = typeof usage?.resetAt === "number" ? formatReset(usage.resetAt, now()) : "";
+  const cell = h(
+    "div",
+    {
+      class: `u g${account === "work" ? " gw" : ""}${open ? " open" : ""}`,
+      tabindex: "0",
+      role: "button",
+      "aria-expanded": open ? "true" : "false",
+      "aria-label": `${label} usage by bot`,
+    },
+    h("div", { class: "n" }, `⚡ ${label}`),
+    h(
+      "div",
+      { class: "v" },
+      usage ? `${Math.round(usage.pctUsed)}%` : "–",
+      h("small", {}, usage ? ` used${reset ? ` · resets ${reset}` : ""}` : " no report yet"),
+    ),
+    h("div", { class: "b" }, h("i", { style: `width:${usage ? Math.max(0, Math.min(100, usage.pctUsed)) : 0}%` })),
+    grokPopover(account, usage),
+  );
+  const toggle = (): void => {
+    state.grokOpen = state.grokOpen === account ? null : account;
+    render();
+  };
+  cell.addEventListener("click", (event) => {
+    if ((event.target as HTMLElement | null)?.closest(".gpop")) return;
+    toggle();
+  });
+  cell.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      toggle();
+    }
+  });
+  return cell;
+}
+
+function grokPopover(account: Account, usage: GrokUsage | undefined): HTMLElement {
+  const bots = usage?.bots ?? [];
+  const top = bots.slice(0, 8);
+  const rest = bots.slice(8);
+  const restShare = rest.reduce((sum, bot) => sum + bot.share, 0);
+  const max = Math.max(1, ...bots.map((bot) => bot.share));
+  const rows = top.map((bot, index) => {
+    const routines = bot.routinesShare !== null && bot.share > 0 && bot.routinesShare >= bot.share / 2;
+    return h(
+      "div",
+      { class: "grow" },
+      h("span", {}, String(index + 1)),
+      h("span", {}, bot.name),
+      h("span", { class: "gbar" }, h("i", { style: `width:${Math.round((bot.share / max) * 100)}%;background:${routines ? "#a5b4fc" : "#0ea5e9"}` })),
+      h("b", {}, `${Math.round(bot.share)}%`),
+    );
+  });
+  if (rest.length > 0) {
+    rows.push(
+      h(
+        "div",
+        { class: "grow" },
+        h("span", {}, ""),
+        h("span", {}, `${rest.length} others`),
+        h("span", { class: "gbar" }, h("i", { style: `width:${Math.round((restShare / max) * 100)}%;background:#e6e8ec` })),
+        h("b", {}, `${Math.round(restShare)}%`),
+      ),
+    );
+  }
+  const reset = typeof usage?.resetAt === "number" ? formatFull(usage.resetAt) : "no reset time";
+  return h(
+    "div",
+    { class: "gpop", role: "dialog" },
+    h(
+      "div",
+      { class: "gh" },
+      h("b", {}, `⚡ Grok Bot · ${ACCOUNT_LABEL[account]}`),
+      h("span", {}, usage ? `${Math.round(usage.pctUsed)}% used · ${reset}` : "No report yet"),
+    ),
+    h("div", { class: "gs" }, "Share of this account's usage this week, by bot"),
+    ...rows,
+    rows.length === 0 ? h("div", { class: "gs" }, "No per-bot breakdown was pushed.") : null,
+    h(
+      "div",
+      { class: "gl" },
+      h("span", {}, "chats & tasks"),
+      h("span", {}, "mostly routines"),
+    ),
+  );
+}
+
+function sessionBlock(): HTMLElement {
+  const data = state.data;
+  const sessions = data?.sessions ?? [];
+  const bots = data?.bots ?? [];
+  const { linked, orphans } = linkSessions(sessions, bots);
+  const shown = linked.slice(0, 8);
+  const extra = linked.length - shown.length;
+  const orphan = orphanLine(orphans);
+  const rows = shown.flatMap(({ session, bot }) => sessionRows(session, bot));
+  const head = h(
+    "h4",
+    {},
+    h("button", { type: "button", class: "grp-h", onclick: () => { state.sessionsOpen = !state.sessionsOpen; savePrefs(); render(); } },
+      "⌨ Coding sessions ",
+      h("span", { class: "csum" }, sessionSummary(sessions)),
+      h("span", { class: "r" }, "started by bots · FYI only"),
+      h("span", { class: "chev" }, state.sessionsOpen ? "▾" : "▸"),
+    ),
+  );
+  const note = h("div", { class: "orph" }, [
+    extra > 0 ? `+${extra} more` : "",
+    extra > 0 && orphan ? " · " : "",
+    orphan ?? "",
+    sessions.length === 0 ? "No coding sessions reported." : "",
+  ].join(""));
+  return h("div", { class: `cs${state.sessionsOpen ? "" : " closed"}` }, head, ...rows, note);
+}
+
+function sessionRows(session: CodingSession, bot: BotView | null): HTMLElement[] {
+  const status = displayStatus(session);
+  const open = state.helpersOpen.has(session.id);
+  const badge = sessionBadge(session);
+  const fyi = attentionBadge(session.attentionReason);
+  const owner = bot
+    ? h(
+        "button",
+        {
+          type: "button",
+          class: "owner-link",
+          title: openLabel(bot.account),
+          onclick: () => {
+            const queued = attention().some((row) => row.bot.id === bot.id && row.bot.account === bot.account);
+            if (queued) jumpTo(bot);
+            else location.assign(openUrl(bot));
+          },
+        },
+        bot.name,
+      )
+    : h("em", {}, session.ownerName ?? "Unassigned");
+  const main = h(
+    "div",
+    { class: "cr" },
+    h(
+      "div",
+      { class: "l1" },
+      h("span", { class: `tool ${badge.className}` }, badge.label),
+      h("b", {}, sessionTitle(session)),
+      fyi ? h("span", { class: "tag t-gray" }, fyi) : null,
+      h("span", { class: `st ${sessionStatusClass(status)}` }, sessionStatusLabel(status)),
+    ),
+    h(
+      "div",
+      { class: "l2" },
+      bot ? "started by " : "",
+      owner,
+      ...sessionMeta(session, status),
+      session.helpers.length
+        ? h(
+            "button",
+            {
+              type: "button",
+              class: "owner-link",
+              "aria-expanded": open ? "true" : "false",
+              onclick: () => {
+                if (state.helpersOpen.has(session.id)) state.helpersOpen.delete(session.id);
+                else state.helpersOpen.add(session.id);
+                render();
+              },
+            },
+            open ? "Hide helpers" : `${session.helpers.length} helpers`,
+          )
+        : null,
+    ),
+  );
+  const helpers = open ? session.helpers.map((helper) => helperRow(helper)) : [];
+  return [main, ...helpers];
+}
+
+function sessionMeta(session: CodingSession, status: ReturnType<typeof displayStatus>): HTMLElement[] {
+  const progress = sessionProgress(session);
+  const bits: HTMLElement[] = [];
+  if (progress !== null) {
+    bits.push(h("span", { class: "pb" }, h("i", { style: `width:${progress}%;background:${sessionBarColor(status)}` })));
+  }
+  if (progress !== null && session.step !== null && session.steps !== null) bits.push(h("span", {}, `${session.step}/${session.steps}`));
+  if (status === "paused_limit" && session.limitReset !== null) {
+    bits.push(h("span", { class: "rt" }, `↻ ${formatClock(session.limitReset, now())}`));
+  } else {
+    bits.push(h("span", { class: "rt" }, runLabel(session, now())));
+  }
+  if (session.ci) bits.push(h("span", {}, session.ci.state));
+  return bits;
+}
+
+function helperRow(helper: SessionHelper): HTMLElement {
+  const progress = helper.step !== null && helper.steps !== null && helper.steps > 0 ? Math.round((helper.step / helper.steps) * 100) : null;
+  return h(
+    "div",
+    { class: "cr hrow" },
+    h(
+      "div",
+      { class: "l1" },
+      h("b", {}, helper.name),
+      h("span", { class: `st ${sessionStatusClass(helper.status)}` }, sessionStatusLabel(helper.status)),
+    ),
+    h(
+      "div",
+      { class: "l2" },
+      progress === null ? null : h("span", {}, `${helper.step}/${helper.steps}`),
+      h("span", { class: "rt" }, helperRuntime(helper.runtimeSec)),
+    ),
+  );
+}
+
+function sessionPlaces(...classes: string[]): HTMLElement[] {
+  return classes.map((name) => h("div", { class: name }, sessionBlock()));
+}
+
+function usageBar(): HTMLElement {
+  const data = state.data;
+  const accounts = sortUsageAccounts(data?.accounts ?? []);
+  const grok = new Map((data?.grok ?? []).map((item) => [item.account, item]));
+  return h(
+    "div",
+    { class: "us" },
+    ...accounts.map(usageCell),
+    grokCell("work", grok.get("work")),
+    grokCell("leaf", grok.get("leaf")),
+  );
+}
+
+function header(): HTMLElement {
+  const tab = state.tab;
+  const title = tab === "focus" ? "Focus" : tab === "board" ? "Board" : "Feed";
+  const tabs = (["focus", "board", "feed"] as const).map((id) =>
+    h(
+      "button",
+      {
+        type: "button",
+        class: id === tab ? "on" : "",
+        "aria-pressed": id === tab ? "true" : "false",
+        onclick: () => {
+          state.tab = id;
+          history.replaceState(null, "", `#${id}`);
+          savePrefs();
+          render();
+        },
+      },
+      id === "focus" ? "Focus" : id === "board" ? "Board" : "Feed",
+    ),
+  );
+  const accounts: { id: AccountFilter; label: string }[] = [
+    { id: "both", label: "All" },
+    { id: "work", label: ACCOUNT_LABEL.work },
+    { id: "leaf", label: ACCOUNT_LABEL.leaf },
+  ];
+  const select = h(
+    "select",
+    {
+      class: "acct-mini",
+      "aria-label": "Account",
+      onchange: (event: Event) => {
+        state.account = (event.target as HTMLSelectElement).value as AccountFilter;
+        resetOlder();
+        savePrefs();
+        void refresh();
+      },
+    },
+    ...accounts.map((item) => h("option", { value: item.id }, item.label)),
+  );
+  select.value = state.account;
+  return h(
+    "header",
+    { class: "top" },
+    h("h1", {}, "Fleet ", h("span", {}, `· ${title}`)),
+    h("nav", { class: "mode", "aria-label": "View" }, ...tabs),
+    h(
+      "div",
+      { class: "r" },
+      h(
+        "span",
+        { class: "acct", role: "group", "aria-label": "Account" },
+        ...accounts.map((item) =>
+          h(
+            "button",
+            {
+              type: "button",
+              class: state.account === item.id ? "on" : "",
+              "aria-pressed": state.account === item.id ? "true" : "false",
+              onclick: () => {
+                state.account = item.id;
+                resetOlder();
+                savePrefs();
+                void refresh();
+              },
+            },
+            item.label,
+          ),
+        ),
+      ),
+      select,
+      h("span", { class: "clock" }, formatHeaderClock(now())),
+      h("form", { method: "post", action: "/logout", class: "signout" }, h("button", { type: "submit" }, "Sign out")),
+    ),
+  );
+}
+
+function queueItem(row: BotRowView, index: number | string, onClick: () => void): HTMLButtonElement {
+  const label = attentionLabel(row.state);
+  return h(
+    "button",
+    { type: "button", class: "qi", onclick: onClick },
+    h("span", { class: "n" }, String(index)),
+    h("b", {}, row.bot.name),
+    h("p", {}, row.stepText),
+    accountTag(row.bot.account),
+    h("span", { class: `tag ${label.tag}` }, label.text),
+    h("span", { class: "t" }, age(row.bot)),
+  );
+}
+
+function focusView(): HTMLElement {
+  const queue = attention();
+  const current = focused();
+  const index = current ? queue.findIndex((row) => rowKey(row) === rowKey(current)) : -1;
+  const next: BotRowView | null = queue.length > 1 ? (queue[(index + 1) % queue.length] ?? null) : null;
+  const dots = h(
+    "div",
+    { class: "dots", "aria-hidden": "true" },
+    ...queue.map((row, i) => h("i", { class: i === index ? "on" : row.state === "error" || row.state === "stale" ? "s" : "a" })),
+  );
+  const card = current ? focusCard(current, next) : h(
+    "div",
+    { class: "fc empty" },
+    h("h3", {}, "Nothing needs you"),
+    h("p", {}, "Stuck, waiting and stale bots land here. Coding sessions stay in their own list and never join this queue."),
+  );
+  const upNext = queue.filter((_, i) => i !== index);
+  const saved = savedRows();
+  return h(
+    "main",
+    { class: "focus" },
+    h(
+      "section",
+      { class: "f-main" },
+      h(
+        "div",
+        { class: "fh" },
+        h("h2", {}, "One thing at a time"),
+        dots,
+        h("span", { class: "r" }, queue.length === 0 ? "Nothing queued" : `${index + 1} of ${queue.length} need you · press N for next`),
+      ),
+      card,
+    ),
+    h(
+      "section",
+      { class: "f-queue" },
+      h("div", { class: "q" }, h("div", { class: "lab" }, "Up next"), ...(upNext.length ? upNext.map((row, i) => queueItem(row, index + i + 2, () => jumpTo(row.bot))) : [h("p", { class: "empty" }, "Nothing else is waiting.")])),
+      saved.length
+        ? h(
+            "div",
+            { class: "q" },
+            h("div", { class: "lab" }, `Saved for later · ${saved.length}`),
+            ...saved.map((row) =>
+              h(
+                "div",
+                { class: "qi sv" },
+                h("span", { class: "n" }, "🔖"),
+                h("b", {}, row.bot.name),
+                h("p", {}, row.stepText),
+                accountTag(row.bot.account),
+                h("span", { class: "tag t-pur" }, "Saved"),
+                h("button", { type: "button", class: "t back", onclick: () => void save(row.bot, false) }, "Move back"),
+              ),
+            ),
+          )
+        : null,
+      ...sessionPlaces("wcode"),
+    ),
+    h(
+      "section",
+      { class: "f-board" },
+      h(
+        "div",
+        { class: "bh" },
+        h("h2", {}, "Everything else, by account"),
+        h("span", { class: "r" }, `${visibleBots().length} bots · ${state.data?.sessions.length ?? 0} coding sessions`),
+      ),
+      h("div", { class: "groups" }, ...accountGroups()),
+      ...sessionPlaces("scode", "tcode"),
+    ),
+  );
+}
+
+function focusCard(row: BotRowView, next: BotRowView | null): HTMLElement {
+  const bot = row.bot;
+  const label = attentionLabel(row.state);
+  const detail = state.detailKey === `${bot.account}:${bot.id}` ? state.detail : null;
+  const summary = detail?.summary ?? null;
+  const messages = [...(detail?.messages ?? [])].reverse();
+  const owned = sessionsOwnedBy(state.data?.sessions ?? [], bot.account, bot.id);
+  const session = owned[0];
+  const pr = prFor(bot);
+  const when = bot.statusAt ? `${formatClock(bot.statusAt, now())} (Hebron)` : "no report yet";
+  return h(
+    "div",
+    { class: "fc" },
+    h(
+      "div",
+      { class: `band ${tone(row.state)}` },
+      h("div", { class: "ico" }, initials(bot.name)),
+      h("div", {}, h("h3", {}, bot.name), h("p", {}, accountTag(bot.account), ` ${groupName(bot.group)} · since ${when}`)),
+      h("span", { class: "st" }, label.text),
+    ),
+    h(
+      "div",
+      { class: "fb" },
+      h(
+        "div",
+        {},
+        h("div", { class: "lab" }, "What you need to know"),
+        h("div", { class: "know" }, summary ?? "This bot hasn't pushed a need-to-know summary."),
+        session ? focusSession(session) : null,
+      ),
+      h(
+        "div",
+        {},
+        h("div", { class: "lab" }, `Messages since your last reply · ${messages.length}`),
+        ...(messages.length
+          ? messages.map((message, i) =>
+              h(
+                "div",
+                { class: i === 0 ? "msg" : "msg old" },
+                h("small", {}, `${formatClock(message.at, now())} (Hebron)`),
+                h("p", {}, message.text),
+              ),
+            )
+          : [h("p", { class: "lastr" }, "No messages since your last reply.")]),
+        bot.lastAviReplyAt ? h("div", { class: "lastr" }, `Your last reply · ${formatFull(bot.lastAviReplyAt)}`) : null,
+      ),
+    ),
+    h(
+      "div",
+      { class: "acts" },
+      openLink(bot, true),
+      pr ? h("a", { class: "btn", href: pr, target: "_blank", rel: "noopener noreferrer" }, prLabel(pr)) : null,
+      laterButton(bot, "Save for later"),
+      h("span", { class: "sp" }),
+      h("button", { type: "button", class: "btn skip", disabled: next ? undefined : "true", onclick: () => advance(1) }, "Skip"),
+      h(
+        "button",
+        { type: "button", class: "btn p", disabled: next ? undefined : "true", onclick: () => advance(1) },
+        next ? `Next: ${next.bot.name} ›` : "Next",
+      ),
+    ),
+  );
+}
+
+function focusSession(session: CodingSession): HTMLElement {
+  const status = displayStatus(session);
+  const progress = sessionProgress(session);
+  const pr = httpsUrl(session.prUrl);
+  const badge = sessionBadge(session);
+  const ciUrl = session.ci ? httpsUrl(session.ci.url) : null;
+  return h(
+    "div",
+    { class: "ses" },
+    h(
+      "div",
+      { class: "a" },
+      h("span", { class: `tool ${badge.className}` }, badge.label),
+      `Coding session it started · ${session.title}`,
+      h("span", { class: `tag ${status === "failed" || status === "aborted" ? "t-red" : status === "finished" ? "t-green" : "t-blue"}` }, sessionStatusLabel(status)),
+    ),
+    progress === null ? null : h("div", { class: "pb" }, h("i", { style: `width:${progress}%;background:${sessionBarColor(status)}` })),
+    h(
+      "div",
+      { class: "m" },
+      h("span", {}, `${runLabel(session, now())} run`),
+      pr ? h("a", { href: pr, target: "_blank", rel: "noopener noreferrer" }, prLabel(pr)) : null,
+      session.ci ? (ciUrl ? h("a", { href: ciUrl, target: "_blank", rel: "noopener noreferrer" }, session.ci.state) : h("span", {}, session.ci.state)) : null,
+      session.repo ? h("span", {}, session.branch ? `${session.repo} · ${session.branch}` : session.repo) : null,
+      session.model ? h("span", {}, session.effort ? `${session.model} · ${session.effort}` : session.model) : null,
+      session.helpers.length ? h("span", {}, `${session.helpers.length} helpers`) : null,
+    ),
+  );
+}
+
+function accountGroups(): HTMLElement[] {
+  const accounts: Account[] = state.account === "leaf" ? ["leaf"] : state.account === "work" ? ["work"] : ["work", "leaf"];
+  const blocks: HTMLElement[] = [];
+  for (const account of accounts) {
+    const rows = visibleBots().filter((row) => row.bot.account === account);
+    const need = rows.filter((row) => row.bot.savedAt === null && needsAttention(row.bucket)).length;
+    blocks.push(
+      h(
+        "div",
+        { class: "acch" },
+        accountTag(account),
+        h("span", {}, `${rows.length} bots`),
+        h("span", { class: "r" }, need === 0 ? "none need you" : `${need} need you`),
+      ),
+    );
+    if (rows.length === 0) {
+      blocks.push(h("p", { class: "empty" }, account === "leaf" ? "No Admin bots yet. They appear after their first report." : "No bots in Avi's Work."));
+      continue;
+    }
+    const names = GROUP_ORDER.filter((name) => (account === "leaf" ? name === LEAF_GROUP : name !== LEAF_GROUP));
+    for (const name of names) {
+      const inGroup = rows.filter((row) => row.bot.group === name);
+      if (inGroup.length === 0 && name === "Unassigned") continue;
+      if (inGroup.length === 0) continue;
+      blocks.push(groupBlock(account, name, inGroup));
+    }
+  }
+  return blocks;
+}
+
+function groupBlock(account: Account, name: string, rows: BotRowView[]): HTMLElement {
+  const key = `${account}:${name}`;
+  const working = rows.filter((row) => row.bucket === "working" && row.bot.savedAt === null);
+  if (!state.groupInit.has(key)) {
+    state.groupInit.add(key);
+    if (state.collapseDefaults && working.length === 0) state.collapsed.add(key);
+  }
+  const closed = state.collapsed.has(key);
+  const lights = rows.slice(0, 8).map((row) => h("i", { style: `background:${stateColor(row.state)}` }));
+  const idleBits = rows
+    .filter((row) => row.bucket !== "working" || row.bot.savedAt !== null)
+    .slice(0, 12)
+    .map((row) => {
+      const mark = row.bot.savedAt !== null ? " · saved" : needsAttention(row.bucket) && row.bot.savedAt === null ? " ↑" : "";
+      return h("span", {}, `${row.bot.name}${mark}`);
+    });
+  const head = h(
+    "h4",
+    {},
+    h(
+      "button",
+      {
+        type: "button",
+        class: "grp-h",
+        "aria-expanded": closed ? "false" : "true",
+        onclick: () => {
+          if (state.collapsed.has(key)) state.collapsed.delete(key);
+          else state.collapsed.add(key);
+          savePrefs();
+          render();
+        },
+      },
+      groupName(name),
+      h("span", { class: "c" }, String(rows.length)),
+      h("span", { class: "sum" }, ` · ${working.length} working`),
+      h("span", { class: "lights" }, ...lights),
+      h("span", { class: "chev" }, closed ? "▸" : "▾"),
+    ),
+  );
+  return h(
+    "div",
+    { class: `grp${closed ? " closed closed-t" : ""}` },
+    head,
+    ...working.map((row) => botLine(row)),
+    idleBits.length ? h("div", { class: "idle" }, ...idleBits) : null,
+  );
+}
+
+function botLine(row: BotRowView): HTMLElement {
+  const note = codingNote(sessionsOwnedBy(state.data?.sessions ?? [], row.bot.account, row.bot.id));
+  return h(
+    "div",
+    { class: "br" },
+    dot(stateColor(row.state)),
+    h("b", {}, row.bot.name),
+    h("p", {}, note ? `${row.stepText} · ${note}` : row.stepText),
+    h("span", { class: "chip" }, age(row.bot)),
+  );
+}
+
+function boardView(): HTMLElement {
+  const rows = visibleBots();
+  const need = attention();
+  const working = rows.filter((row) => row.bucket === "working" && row.bot.savedAt === null).sort(byRecent);
+  const saved = savedRows();
+  const idle = rows.filter((row) => (row.bucket === "idle" || row.state === "unknown") && row.bot.savedAt === null);
+  return h(
+    "main",
+    { class: "board" },
+    column("need wide2", "var(--red)", "Needs me", need.length, "by account", boardCards(need, "need")),
+    column("work wide2", "var(--blue)", "Working", working.length, "by account", boardCards(working, "work")),
+    h(
+      "div",
+      { class: "col save" },
+      colHead("var(--purple)", "Saved for later", saved.length, ""),
+      ...saved.map((row) => boardCard(row, "save")),
+      saved.length === 0 ? h("p", { class: "empty" }, "Nothing saved.") : null,
+      ...sessionPlaces("bcode"),
+    ),
+    h(
+      "div",
+      { class: "col idlec" },
+      colHead("var(--gray)", "Idle & done", idle.length, ""),
+      h("div", { class: "unc" }, ...idle.map((row) => h("div", { class: "mini" }, dot(stateColor(row.state)), row.bot.name, h("span", { class: "t" }, age(row.bot) || "–")))),
+      h("div", { class: "unl" }, `${idle.length} idle`),
+    ),
+    ...sessionPlaces("tcode"),
+  );
+}
+
+function column(className: string, color: string, title: string, count: number, aside: string, body: HTMLElement): HTMLElement {
+  return h("div", { class: `col ${className}` }, colHead(color, title, count, aside), body);
+}
+
+function colHead(color: string, title: string, count: number, aside: string): HTMLElement {
+  return h(
+    "h3",
+    {},
+    h("span", { class: "d", style: `background:${color}` }),
+    title,
+    h("span", { class: "c" }, String(count)),
+    aside ? h("span", { class: "r" }, aside) : null,
+  );
+}
+
+function boardCards(rows: BotRowView[], kind: "need" | "work"): HTMLElement {
+  const accounts: Account[] = [];
+  for (const row of rows) if (!accounts.includes(row.bot.account)) accounts.push(row.bot.account);
+  const children: HTMLElement[] = [];
+  for (const account of accounts) {
+    children.push(h("div", { class: "pg" }, accountTag(account)));
+    for (const row of rows.filter((item) => item.bot.account === account)) children.push(boardCard(row, kind));
+  }
+  if (children.length === 0) children.push(h("p", { class: "empty" }, kind === "need" ? "Nobody needs you." : "Nobody is working."));
+  return h("div", { class: "cards" }, ...children);
+}
+
+function boardCard(row: BotRowView, kind: "need" | "work" | "save"): HTMLElement {
+  const label = kind === "save" ? { text: "SAVED", tag: "t-pur" } : attentionLabel(row.state);
+  const note = codingNote(sessionsOwnedBy(state.data?.sessions ?? [], row.bot.account, row.bot.id));
+  const pr = prFor(row.bot);
+  const border = kind === "save" ? "var(--purple)" : stateColor(row.state);
+  return h(
+    "div",
+    { class: "card", style: `--x:${border}` },
+    h("div", { class: "proj" }, groupName(row.bot.group), accountTag(row.bot.account)),
+    h(
+      "div",
+      { class: "h" },
+      h("b", {}, row.bot.name),
+      kind === "work" ? null : h("span", { class: `tag ${label.tag}` }, label.text),
+      h("span", { class: "t" }, age(row.bot)),
+    ),
+    h("p", {}, row.stepText),
+    note && kind === "work" ? h("div", { class: "cn" }, note) : null,
+    kind === "work"
+      ? null
+      : h(
+          "div",
+          { class: "ac" },
+          kind === "save"
+            ? h("button", { type: "button", class: "p", onclick: () => void save(row.bot, false) }, "Move back")
+            : null,
+          openLink(row.bot, kind !== "save"),
+          pr && kind === "need" ? h("a", { href: pr, target: "_blank", rel: "noopener noreferrer" }, prLabel(pr)) : null,
+          kind === "need" ? h("button", { type: "button", onclick: () => void save(row.bot, true) }, "🔖 Later") : null,
+        ),
+  );
+}
+
+function feedView(): HTMLElement {
+  const queue = attention();
+  const saved = savedRows();
+  const items = feedItems();
+  return h(
+    "main",
+    { class: "feed" },
+    h(
+      "section",
+      { class: "pin" },
+      h("div", { class: "lab" }, `Needs my attention · ${queue.length}`, h("span", { class: "r" }, "pinned until handled")),
+      h(
+        "div",
+        { class: "pins" },
+        ...(queue.length
+          ? queue.map((row) => pinCard(row))
+          : [h("p", { class: "empty" }, "Nothing needs you.")]),
+      ),
+    ),
+    h(
+      "section",
+      { class: "saved" },
+      ...saved.map((row) =>
+        h(
+          "div",
+          { class: "sv" },
+          "🔖 ",
+          h("span", {}, h("b", {}, "Saved: "), `${row.bot.name} · ${row.stepText}`),
+          accountTag(row.bot.account),
+          h(
+            "span",
+            { class: "r" },
+            h("button", { type: "button", class: "btn", onclick: () => void save(row.bot, false) }, "Move back"),
+          ),
+        ),
+      ),
+    ),
+    h(
+      "section",
+      { class: "tl" },
+      h("div", { class: "lab" }, "What bots are saying", feedFilters()),
+      h("div", { class: "tlcols" }, ...timeline(items)),
+      state.olderNext !== null || (!state.olderLoaded && (state.data?.activity.nextBefore ?? null) !== null)
+        ? h(
+            "button",
+            {
+              type: "button",
+              class: "older",
+              onclick: () => void loadOlder(state.olderLoaded ? state.olderNext : (state.data?.activity.nextBefore ?? null)),
+            },
+            state.loadingOlder ? "Loading…" : "View older activity",
+          )
+        : null,
+    ),
+    h(
+      "aside",
+      { class: "side" },
+      h(
+        "div",
+        { class: "box wkbox" },
+        h("div", { class: "lab" }, `Working now · ${visibleBots().filter((row) => row.bucket === "working").length}`),
+        h(
+          "div",
+          { class: "wkrow" },
+          ...visibleBots()
+            .filter((row) => row.bucket === "working" && row.bot.savedAt === null)
+            .map((row) => h("div", { class: "wk" }, dot("var(--blue)"), h("b", {}, row.bot.name), h("em", {}, ACCOUNT_LABEL[row.bot.account]))),
+        ),
+      ),
+      ...sessionPlaces("fcode", "tcode"),
+      h("div", { class: "box projects" }, h("div", { class: "lab" }, "By account"), ...accountSummary()),
+    ),
+  );
+}
+
+function pinCard(row: BotRowView): HTMLElement {
+  const label = attentionLabel(row.state);
+  return h(
+    "div",
+    { class: "pc", style: `--x:${stateColor(row.state)}` },
+    h("div", { class: "t" }, label.text, h("span", {}, age(row.bot))),
+    h("b", {}, row.bot.name),
+    h("div", { class: "pa" }, accountTag(row.bot.account)),
+    h("p", {}, row.stepText),
+    h("div", { class: "pcb" }, openLink(row.bot, true)),
+  );
+}
+
+function feedFilters(): HTMLElement {
+  const options: { id: FeedFilter; label: string }[] = [
+    { id: "all", label: "Everything" },
+    { id: "needs", label: "Needs me" },
+    { id: "work", label: ACCOUNT_LABEL.work },
+    { id: "leaf", label: ACCOUNT_LABEL.leaf },
+  ];
+  return h(
+    "span",
+    { class: "fil" },
+    ...options.map((option) =>
+      h(
+        "button",
+        {
+          type: "button",
+          class: state.feedFilter === option.id ? "on" : "",
+          onclick: () => {
+            state.feedFilter = option.id;
+            render();
+          },
+        },
+        option.label,
+      ),
+    ),
+  );
+}
+
+function feedItems(): ActivityItem[] {
+  const first = state.data?.activity.items ?? [];
+  const seen = new Set<number>();
+  const items = [...first, ...state.olderActivity].filter((item) => !seen.has(item.seq) && seen.add(item.seq));
+  return items.filter((item) => {
+    if (!accountMatches(item.account, state.account)) return false;
+    if (state.feedFilter === "work" || state.feedFilter === "leaf") return item.account === state.feedFilter;
+    if (state.feedFilter === "needs") return item.kind === "waiting_user" || item.kind === "error" || item.kind === "message";
+    return true;
+  });
+}
+
+function timeline(items: ActivityItem[]): HTMLElement[] {
+  const out: HTMLElement[] = [];
+  let bucket = "";
+  const clock = now();
+  for (const item of items) {
+    const name = isSameDay(item.at, clock) ? (clock - item.at < 30 * 60_000 ? "Now" : "Earlier today") : formatClock(item.at, clock);
+    if (name !== bucket) {
+      bucket = name;
+      out.push(h("div", { class: "day" }, name));
+    }
+    const bot = state.data?.bots.find((candidate) => candidate.account === item.account && candidate.id === item.botId);
+    const display = bot ? displayState(bot, clock) : "idle";
+    out.push(
+      h(
+        "div",
+        { class: "it" },
+        h("div", { class: "av", style: `background:${stateColor(display)}` }, initials(item.botName)),
+        h(
+          "div",
+          { class: "bd" },
+          h(
+            "div",
+            { class: "l" },
+            h("b", {}, item.botName),
+            accountTag(item.account),
+            h("span", { class: `tag ${tagForKind(item.kind)}` }, kindLabel(item.kind)),
+            h("span", { class: "tm" }, `${formatClock(item.at, clock)} (Hebron)`),
+          ),
+          h("p", {}, activityText(item)),
+        ),
+      ),
+    );
+  }
+  if (out.length === 0) out.push(h("p", { class: "empty" }, "No activity for this filter yet."));
+  return out;
+}
+
+function tagForKind(kind: ActivityItem["kind"]): string {
+  switch (kind) {
+    case "error":
+      return "t-red";
+    case "waiting_user":
+    case "message":
+      return "t-amb";
+    case "working":
+      return "t-blue";
+    case "saved":
+    case "unsaved":
+      return "t-pur";
+    case "done":
+      return "t-green";
+    default:
+      return "t-gray";
+  }
+}
+
+function kindLabel(kind: ActivityItem["kind"]): string {
+  switch (kind) {
+    case "waiting_user":
+      return "Needs me";
+    case "error":
+      return "Stuck";
+    case "working":
+      return "Working";
+    case "done":
+      return "Done";
+    case "saved":
+      return "Saved for later";
+    case "message":
+      return "Message";
+    case "avi_replied":
+      return "You replied";
+    case "summary":
+      return "Summary";
+    case "unsaved":
+      return "Back";
+    case "idle":
+      return "Idle";
+  }
+}
+
+function accountSummary(): HTMLElement[] {
+  const accounts: Account[] = state.account === "leaf" ? ["leaf"] : state.account === "work" ? ["work"] : ["work", "leaf"];
+  return accounts.map((account) => {
+    const rows = visibleBots().filter((row) => row.bot.account === account);
+    const need = rows.filter((row) => row.bot.savedAt === null && needsAttention(row.bucket)).length;
+    return h(
+      "div",
+      { class: "pr" },
+      h("b", {}, accountTag(account)),
+      h("span", { class: "lights" }, ...rows.slice(0, 8).map((row) => h("i", { style: `background:${stateColor(row.state)}` }))),
+      h("em", {}, `${rows.length} bots · ${need} need you`),
+    );
+  });
+}
+
 async function loadOlder(before: number | null): Promise<void> {
-  if (before === null || state.loadingOlder || !feedReady()) return;
+  if (before === null || state.loadingOlder) return;
   const account = state.account;
   const gen = state.olderGen;
   state.loadingOlder = true;
-  renderFeed();
+  render();
   try {
     const page = await fetchActivity(before, account);
-    // Drop the page if the account changed or paging was reset (a gap opened) meanwhile.
     if (account === state.account && gen === state.olderGen) {
       const seen = new Set<number>();
       state.olderActivity = [...state.olderActivity, ...page.items]
@@ -831,42 +1356,63 @@ async function loadOlder(before: number | null): Promise<void> {
     }
   } catch (err) {
     if (err instanceof SignedOutError) return signedOut();
-    // A failed first page must not leave carried items behind with paging still off.
     if (gen === state.olderGen && !state.olderLoaded) state.olderActivity = [];
   } finally {
     state.loadingOlder = false;
   }
-  renderFeed();
+  render();
 }
 
-// ------------------------------------------------------------------ boot
-
-function syncFromHash(): void {
-  const target = parseHash();
-  if (target) showDetail(target.account, target.id, null);
-  else if (state.detail) hideDetail();
+function render(): void {
+  const root = app();
+  if (!root) return;
+  const scroll = root.querySelector("main")?.scrollTop ?? 0;
+  const main = !state.data
+    ? h("main", {}, h("p", { class: "boot" }, state.error ?? "Loading Bot Fleet…"))
+    : state.tab === "board"
+      ? boardView()
+      : state.tab === "feed"
+        ? feedView()
+        : focusView();
+  const parts: Node[] = [header()];
+  if (state.data) parts.push(usageBar());
+  if (state.error && state.data) parts.push(h("p", { class: "banner", role: "status" }, state.error));
+  parts.push(main);
+  root.replaceChildren(...parts);
+  const nextMain = root.querySelector("main");
+  if (nextMain) nextMain.scrollTop = scroll;
 }
 
 function boot(): void {
-  const root = document.getElementById("app");
-  if (!root) return;
   loadPrefs();
-  buildLayout(root);
-  renderAll();
+  const hashed = tabFromHash();
+  if (hashed) state.tab = hashed;
+  else history.replaceState(null, "", `#${state.tab}`);
+  render();
   void refresh();
-  syncFromHash();
-
-  window.addEventListener("popstate", syncFromHash);
-  window.addEventListener("hashchange", syncFromHash);
+  window.addEventListener("hashchange", () => {
+    const next = tabFromHash();
+    if (next && next !== state.tab) {
+      state.tab = next;
+      savePrefs();
+      render();
+    }
+  });
   document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape" && state.detail) {
+    const target = event.target;
+    if (target instanceof HTMLElement && target.closest("input, textarea, select")) return;
+    if ((event.key === "n" || event.key === "N" || event.key === "ArrowRight") && !event.metaKey && !event.ctrlKey && !event.altKey) {
+      if (state.tab !== "focus") return;
       event.preventDefault();
-      closeDetail();
-    } else if (event.key === "Tab" && state.detail) {
-      trapFocus(event);
-    } else if (event.key === "/" && document.activeElement === document.body) {
-      event.preventDefault();
-      refs.search?.focus();
+      advance(1);
+    }
+  });
+  document.addEventListener("click", (event) => {
+    const target = event.target;
+    if (target instanceof HTMLElement && target.closest(".u.g")) return;
+    if (state.grokOpen) {
+      state.grokOpen = null;
+      render();
     }
   });
   document.addEventListener("visibilitychange", () => {
@@ -877,5 +1423,4 @@ function boot(): void {
   }, REFRESH_MS);
 }
 
-if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot);
-else boot();
+boot();

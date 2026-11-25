@@ -2,11 +2,11 @@
   "accounts": [
     {
       "id": "work",
-      "label": "Work account"
+      "label": "Avi's Work"
     },
     {
       "id": "leaf",
-      "label": "Leaf account"
+      "label": "Admin"
     }
   ],
   "groups": [
@@ -21,8 +21,8 @@
     "Work-account roster snapshotted from /home/box/agent-data/agents and sidebarSections on 2026-11-24 (Asia/Hebron).",
     "Chief (b0642d5e-...) is the primary bot and was not in a sidebar section; seeded into Main.",
     "Disk Saver was unsectioned; seeded as Unassigned.",
-    "Leaf-account bots are not on this box. Do not invent them. Upsert Leaf bots on first authenticated ingest (Leaf write key) into group \"Leaf account\".",
-    "Open deep links (grokbot://app/v1/prompt?id=<bot-id>) are for work-account bots only. Hide or disable Open on Leaf rows.",
+    "Leaf-account bots are not on this box. Do not invent them. Upsert them on first authenticated ingest (Admin/leaf write key) into group \"Leaf account\". The UI calls this account Admin and the group Admin bots; the stored group name stays \"Leaf account\".",
+    "Open chat is grokbot://app/v1/agent?id=<bot-id> for both accounts. The button is labeled with the account (Open in Avi's Work / Open in Admin).",
     "Stale sidebar IDs with no on-disk profile were omitted."
   ],
   "bots": [

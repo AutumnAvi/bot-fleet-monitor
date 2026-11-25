@@ -19,11 +19,21 @@ const SECRET_PATTERNS: RegExp[] = [
   /\bxox[abprs]-[A-Za-z0-9-]{10,}\b/g,
   /\bAKIA[0-9A-Z]{16}\b/g,
   /\bAIza[0-9A-Za-z_-]{30,}\b/g,
-  /\bbf[wl]_[A-Za-z0-9_-]{20,}\b/g,
+  /\bbf[wlrs]_[A-Za-z0-9_-]{20,}\b/g,
   /\b(Bearer)\s+[A-Za-z0-9._~+/=-]{16,}/gi,
 ];
 
 export const REDACTED = "[redacted]";
+
+/** True when the text matches an obvious credential pattern. Does not return the match. */
+export function containsSecret(text: string): boolean {
+  return SECRET_PATTERNS.some((pattern) => {
+    pattern.lastIndex = 0;
+    const found = pattern.test(text);
+    pattern.lastIndex = 0;
+    return found;
+  });
+}
 
 export function redactSecrets(text: string): string {
   let out = text;

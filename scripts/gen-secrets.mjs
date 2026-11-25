@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-// Generates the dashboard password (+ its PBKDF2 hash) and the two ingest write keys
-// into a private directory OUTSIDE the repo. Files are mode 600. Values are never
-// printed; only file names are.
+// Generates the dashboard password (+ its PBKDF2 hash), the ingest write keys
+// (work, Admin/leaf, sessions) and the read-only key into a private directory
+// OUTSIDE the repo. Files are mode 600. Values are never printed; only file names are.
 //
 //   node scripts/gen-secrets.mjs --dir /path/outside/repo [--force] [--iterations 25000]
 
@@ -45,6 +45,8 @@ const files = {
   "dashboard-password.hash": hashPassword(password, iterations),
   "ingest-key-work": generateKey("bfw"),
   "ingest-key-leaf": generateKey("bfl"),
+  "ingest-key-sessions": generateKey("bfs"),
+  "read-key": generateKey("bfr"),
 };
 
 for (const [name, value] of Object.entries(files)) {

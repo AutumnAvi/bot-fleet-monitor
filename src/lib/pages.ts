@@ -25,7 +25,7 @@ ${HEAD}
 <body>
 <main class="login-card">
   <h1>Bot Fleet</h1>
-  <p class="login-sub">Read-only status for Avi's Grok Bots.</p>
+  <p class="login-sub">Avi's Work and Admin. Bots push; this page never wakes them.</p>
   ${alert}
   <form method="post" action="/login">
     <input type="text" name="username" value="avi" autocomplete="username" hidden>

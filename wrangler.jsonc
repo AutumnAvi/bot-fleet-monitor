@@ -22,7 +22,7 @@
   },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["FleetStore"] }],
   "secrets": {
-    "required": ["DASHBOARD_PASSWORD_HASH", "INGEST_KEY_WORK", "INGEST_KEY_LEAF"]
+    "required": ["DASHBOARD_PASSWORD_HASH", "INGEST_KEY_WORK", "INGEST_KEY_LEAF", "INGEST_KEY_SESSIONS", "READ_KEY"]
   },
   // Our own logs are one JSON line per ingest/login with no keys or bot text.
   // Invocation logs (which carry request headers) stay off.

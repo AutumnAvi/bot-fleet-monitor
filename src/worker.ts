@@ -8,8 +8,8 @@ import { FleetStore } from "./fleet-store";
 import {
   SESSION_COOKIE,
   SESSION_TTL_MS,
-  accountForKey,
   bearerToken,
+  classifyKey,
   clearSessionCookie,
   isSameOriginPost,
   isWellFormedSessionToken,
@@ -21,7 +21,15 @@ import {
 } from "./lib/auth";
 import { apiError, html, isJsonContentType, json, readBodyCapped, redirect, text } from "./lib/http";
 import { appShell, loginPage } from "./lib/pages";
-import { ClientError, isIngestKind, parseIngestPayload } from "./lib/validate";
+import {
+  ClientError,
+  isBotKind,
+  isIngestKind,
+  parseGrokUsagePayload,
+  parseIngestPayload,
+  parseSessionsPayload,
+  parseUsagePayload,
+} from "./lib/validate";
 import { ACCOUNTS, LIMITS, RATE_LIMITS, type Account } from "./shared/model";
 
 export { FleetStore };
@@ -111,6 +119,32 @@ async function handleLogout(request: Request, env: Env): Promise<Response> {
 
 // ------------------------------------------------------------------ ingest
 
+function snapshotLimited(account: string, bytes: number, retryAfterSec: number): Response {
+  log({ evt: "ingest", account, kind: "snapshot", bytes, result: "rate_limited", status: 429 });
+  return apiError(429, "rate_limited", "Too many reports; this one was dropped. Do not retry in a loop.", {
+    "Retry-After": String(retryAfterSec),
+  });
+}
+
+function bodyLimit(kind: string): number {
+  if (kind === "sessions") return LIMITS.sessionsBodyBytes;
+  if (kind === "usage" || kind === "grok-usage") return LIMITS.usageBodyBytes;
+  return LIMITS.ingestBodyBytes;
+}
+
+async function readJson(request: Request, maxBytes: number): Promise<{ raw: unknown; bytes: number }> {
+  if (!isJsonContentType(request)) {
+    throw new ClientError(415, "unsupported_media_type", "Content-Type must be application/json");
+  }
+  const body = await readBodyCapped(request, maxBytes);
+  const bytes = new TextEncoder().encode(body).byteLength;
+  try {
+    return { raw: JSON.parse(body) as unknown, bytes };
+  } catch {
+    throw new ClientError(400, "invalid_json", "Body is not valid JSON");
+  }
+}
+
 async function handleIngest(request: Request, env: Env, kind: string): Promise<Response> {
   if (!isIngestKind(kind)) {
     log({ evt: "ingest", result: "unknown_kind", status: 404 });
@@ -121,39 +155,60 @@ async function handleIngest(request: Request, env: Env, kind: string): Promise<R
     return methodNotAllowed("POST");
   }
 
-  const account = await accountForKey(bearerToken(request), env);
-  if (account === null) {
+  // The read key is not a write key. The sessions key is not an account key.
+  const role = await classifyKey(bearerToken(request), env);
+  const snapshot = kind === "sessions" || kind === "usage";
+  const grok = kind === "grok-usage";
+  const allowed = snapshot ? role === "sessions" : grok ? role === "work" || role === "leaf" : role === "work" || role === "leaf";
+  if (!allowed || role === null || role === "read") {
     log({ evt: "ingest", kind, result: "unauthorized", status: 401 });
     return apiError(401, "unauthorized", "Missing or invalid write key", { "WWW-Authenticate": "Bearer" });
   }
 
   let bytes = 0;
   try {
-    if (!isJsonContentType(request)) {
-      throw new ClientError(415, "unsupported_media_type", "Content-Type must be application/json");
+    const parsed = await readJson(request, bodyLimit(kind));
+    bytes = parsed.bytes;
+    if (kind === "sessions") {
+      const payload = parseSessionsPayload(parsed.raw);
+      const saved = await store(env).replaceSessions(payload);
+      if (!saved.ok) return snapshotLimited("sessions", bytes, saved.retryAfterSec);
+      log({ evt: "ingest", account: "sessions", kind, bytes, count: payload.sessions.length, result: "ok", status: 200 });
+      return json({ ok: true, count: payload.sessions.length });
     }
-    const body = await readBodyCapped(request, LIMITS.ingestBodyBytes);
-    bytes = new TextEncoder().encode(body).byteLength;
-    let raw: unknown;
-    try {
-      raw = JSON.parse(body);
-    } catch {
-      throw new ClientError(400, "invalid_json", "Body is not valid JSON");
+    if (kind === "usage") {
+      const payload = parseUsagePayload(parsed.raw);
+      const saved = await store(env).replacePools(payload);
+      if (!saved.ok) return snapshotLimited("sessions", bytes, saved.retryAfterSec);
+      log({ evt: "ingest", account: "sessions", kind, bytes, count: payload.accounts.length, result: "ok", status: 200 });
+      return json({ ok: true, count: payload.accounts.length });
     }
-    const payload = parseIngestPayload(kind, account, raw);
-    const result = await store(env).ingest(account, payload);
+    if (kind === "grok-usage") {
+      const account = role === "leaf" ? "leaf" : "work";
+      const payload = parseGrokUsagePayload(parsed.raw, account);
+      const saved = await store(env).replaceGrokUsage(account, payload);
+      if (!saved.ok) return snapshotLimited(account, bytes, saved.retryAfterSec);
+      log({ evt: "ingest", account, kind, bytes, count: payload.bots.length, result: "ok", status: 200 });
+      return json({ ok: true, count: payload.bots.length });
+    }
+    if (!isBotKind(kind) || (role !== "work" && role !== "leaf")) {
+      log({ evt: "ingest", kind, result: "unauthorized", status: 401 });
+      return apiError(401, "unauthorized", "Missing or invalid write key", { "WWW-Authenticate": "Bearer" });
+    }
+    const payload = parseIngestPayload(kind, role, parsed.raw);
+    const result = await store(env).ingest(role, payload);
     if (!result.ok) {
-      log({ evt: "ingest", account, kind, bot: payload.botId, bytes, result: result.error, status: result.status });
+      log({ evt: "ingest", account: role, kind, bot: payload.botId, bytes, result: result.error, status: result.status });
       const extra: HeadersInit | undefined =
         result.retryAfterSec !== undefined ? { "Retry-After": String(result.retryAfterSec) } : undefined;
       return apiError(result.status, result.error, result.message, extra);
     }
     const status = result.created ? 201 : 200;
-    log({ evt: "ingest", account, kind, bot: payload.botId, bytes, result: "ok", status });
+    log({ evt: "ingest", account: role, kind, bot: payload.botId, bytes, result: "ok", status });
     return json({ ok: true, created: result.created }, status);
   } catch (err) {
     if (err instanceof ClientError) {
-      log({ evt: "ingest", account, kind, bytes, result: err.code, status: err.status });
+      log({ evt: "ingest", kind, bytes, result: err.code, status: err.status });
       return apiError(err.status, err.code, err.message);
     }
     throw err;
@@ -205,21 +260,36 @@ async function handleSaved(request: Request, env: Env, match: RegExpExecArray): 
   return json({ ok: true, saved });
 }
 
+function activityAccountOf(url: URL): Account | null | Response {
+  const accountParam = url.searchParams.get("account");
+  if (accountParam === null || accountParam === "both") return null;
+  if (!(ACCOUNTS as readonly string[]).includes(accountParam)) {
+    return apiError(400, "invalid_account", '"account" must be work, leaf or both');
+  }
+  return accountParam as Account;
+}
+
 async function handleApi(request: Request, env: Env, url: URL): Promise<Response> {
   const savedMatch = SAVED_PATH.exec(url.pathname);
   if (savedMatch) return handleSaved(request, env, savedMatch);
   if (request.method !== "GET") return methodNotAllowed("GET");
+
+  // The read key can only open this one endpoint. It cannot write, and it cannot
+  // use the older dashboard routes. A dashboard cookie can open all of them.
+  if (url.pathname === "/api/v1/state") {
+    const role = await classifyKey(bearerToken(request), env);
+    const allowed = role === "read" || (await hasSession(request, env));
+    if (!allowed) return apiError(401, "unauthorized", "Sign in first");
+    const activityAccount = activityAccountOf(url);
+    if (activityAccount instanceof Response) return activityAccount;
+    return json(await store(env).state(activityAccount));
+  }
+
   if (!(await hasSession(request, env))) return apiError(401, "unauthorized", "Sign in first");
 
   // Optional ?account=work|leaf narrows the activity feed (the bot list always has both).
-  const accountParam = url.searchParams.get("account");
-  let activityAccount: Account | null = null;
-  if (accountParam !== null && accountParam !== "both") {
-    if (!(ACCOUNTS as readonly string[]).includes(accountParam)) {
-      return apiError(400, "invalid_account", '"account" must be work, leaf or both');
-    }
-    activityAccount = accountParam as Account;
-  }
+  const activityAccount = activityAccountOf(url);
+  if (activityAccount instanceof Response) return activityAccount;
 
   if (url.pathname === "/api/fleet") return json(await store(env).fleet(activityAccount));
 

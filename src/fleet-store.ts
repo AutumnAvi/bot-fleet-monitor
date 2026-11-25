@@ -12,18 +12,26 @@ import {
   LIMITS,
   RATE_LIMITS,
   WORK_GROUPS,
+  accountLabel,
   type Account,
   type ActivityItem,
   type ActivityPage,
+  type AttentionItem,
   type BotDetail,
   type BotView,
+  type CodingSession,
   type EventKind,
   type FleetResponse,
+  type GrokBotUsage,
+  type GrokUsage,
+  type StateResponse,
   type StoredStatus,
+  type UsageAccount,
 } from "./shared/model";
 import { STALE_AFTER_MS } from "./shared/model";
+import { buildFleetView } from "./shared/fleet-view";
 import { cleanLine } from "./lib/sanitize";
-import type { IngestPayload } from "./lib/validate";
+import type { GrokUsagePayload, IngestPayload, SessionsPayload, UsagePayload } from "./lib/validate";
 
 export type IngestResult =
   | { ok: true; created: boolean }
@@ -110,6 +118,48 @@ CREATE TABLE IF NOT EXISTS rate_limits (
   bucket TEXT PRIMARY KEY,
   window_start INTEGER NOT NULL,
   count INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS coding_sessions (
+  id TEXT PRIMARY KEY,
+  tool TEXT NOT NULL,
+  title TEXT NOT NULL,
+  status TEXT NOT NULL,
+  step INTEGER,
+  steps INTEGER,
+  helpers INTEGER NOT NULL,
+  started_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  owner_bot_id TEXT,
+  owner_name TEXT,
+  account TEXT,
+  pr_url TEXT,
+  ci TEXT,
+  pool TEXT,
+  received_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS usage_pools (
+  id TEXT PRIMARY KEY,
+  label TEXT NOT NULL,
+  grp TEXT NOT NULL,
+  pct_left REAL,
+  pct_used REAL,
+  spend TEXT,
+  reset_at INTEGER,
+  note TEXT,
+  sort_index INTEGER NOT NULL,
+  received_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS snapshots (
+  kind TEXT PRIMARY KEY,
+  body TEXT NOT NULL,
+  received_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS grok_usage (
+  account TEXT PRIMARY KEY,
+  pct_used REAL NOT NULL,
+  reset_at INTEGER,
+  bots_json TEXT NOT NULL,
+  received_at INTEGER NOT NULL
 );
 `;
 
@@ -507,6 +557,45 @@ export class FleetStore extends DurableObject<Env> {
     );
   }
 
+  // ---------------------------------------------------------------- snapshots
+  // The collector replaces a whole list. Validation happens before these run,
+  // so a rejected body never deletes the previous snapshot.
+
+  replaceSessions(payload: SessionsPayload): { ok: true } | { ok: false; retryAfterSec: number } {
+    const now = Date.now();
+    const limit = this.hitRateLimit("snapshot:sessions", LIMITS.snapshotsPerMinute, 60_000, now);
+    if (!limit.ok) return { ok: false, retryAfterSec: limit.retryAfterSec };
+    this.writeSnapshot("sessions", payload.sessions, now);
+    return { ok: true };
+  }
+
+  replacePools(payload: UsagePayload): { ok: true } | { ok: false; retryAfterSec: number } {
+    const now = Date.now();
+    const limit = this.hitRateLimit("snapshot:usage", LIMITS.snapshotsPerMinute, 60_000, now);
+    if (!limit.ok) return { ok: false, retryAfterSec: limit.retryAfterSec };
+    const accounts: UsageAccount[] = payload.accounts.map((account) => ({ ...account, reportedAt: now }));
+    this.writeSnapshot("usage", accounts, now);
+    return { ok: true };
+  }
+
+  replaceGrokUsage(account: Account, payload: GrokUsagePayload): { ok: true } | { ok: false; retryAfterSec: number } {
+    const now = Date.now();
+    const limit = this.hitRateLimit(`grok:${account}`, LIMITS.grokUsagePerMinute, 60_000, now);
+    if (!limit.ok) return { ok: false, retryAfterSec: limit.retryAfterSec };
+    this.sql.exec(
+      `INSERT INTO grok_usage (account, pct_used, reset_at, bots_json, received_at) VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT (account) DO UPDATE SET
+         pct_used = excluded.pct_used, reset_at = excluded.reset_at,
+         bots_json = excluded.bots_json, received_at = excluded.received_at`,
+      account,
+      payload.pctUsed,
+      payload.resetAt,
+      JSON.stringify(payload.bots),
+      now,
+    );
+    return { ok: true };
+  }
+
   // ---------------------------------------------------------------- reads
 
   private botViews(where = "", ...bindings: SqlStorageValue[]): BotView[] {
@@ -572,6 +661,81 @@ export class FleetStore extends DurableObject<Env> {
     return { items, nextBefore: rows.length > size && last ? last.seq : null };
   }
 
+  /** Dashboard and Mac app read model. Attention is bots only; sessions are a separate list. */
+  state(activityAccount: Account | null = null): StateResponse {
+    const fleet = this.fleet(activityAccount);
+    const view = buildFleetView(fleet.bots, { account: "both", filter: "all", query: "", now: fleet.now });
+    const attention: AttentionItem[] = [];
+    for (const row of view.attention ?? []) {
+      if (row.state !== "waiting_user" && row.state !== "error" && row.state !== "stale") continue;
+      attention.push({
+        account: row.bot.account,
+        accountLabel: accountLabel(row.bot.account),
+        id: row.bot.id,
+        name: row.bot.name,
+        group: row.bot.group,
+        state: row.state,
+        step: row.bot.step,
+        statusAt: row.bot.statusAt,
+      });
+    }
+    return { ...fleet, version: 2, sessions: this.readSnapshot<CodingSession[]>("sessions", []), accounts: this.readSnapshot<UsageAccount[]>("usage", []), grok: this.grokUsage(), attention };
+  }
+
+  /** Full-snapshot JSON. Nested session helpers and usage meters don't fit a flat row. */
+  private writeSnapshot(kind: string, body: unknown, now: number): void {
+    this.sql.exec(
+      `INSERT INTO snapshots (kind, body, received_at) VALUES (?, ?, ?)
+       ON CONFLICT (kind) DO UPDATE SET body = excluded.body, received_at = excluded.received_at`,
+      kind,
+      JSON.stringify(body),
+      now,
+    );
+  }
+
+  private readSnapshot<T>(kind: string, fallback: T): T {
+    const row = this.sql.exec<{ body: string }>("SELECT body FROM snapshots WHERE kind = ?", kind).toArray()[0];
+    if (!row) return fallback;
+    try {
+      const parsed = JSON.parse(row.body) as unknown;
+      return Array.isArray(parsed) ? (parsed as T) : fallback;
+    } catch {
+      return fallback;
+    }
+  }
+
+  private grokUsage(): GrokUsage[] {
+    const rows = this.sql
+      .exec<{ account: string; pct_used: number; reset_at: number | null; bots_json: string; received_at: number }>(
+        "SELECT account, pct_used, reset_at, bots_json, received_at FROM grok_usage",
+      )
+      .toArray();
+    const out: GrokUsage[] = [];
+    for (const row of rows) {
+      if (row.account !== "work" && row.account !== "leaf") continue;
+      let bots: GrokBotUsage[] = [];
+      try {
+        const parsed = JSON.parse(row.bots_json) as unknown;
+        if (Array.isArray(parsed)) {
+          bots = parsed.flatMap((item) => {
+            const bot = toGrokBot(item);
+            return bot ? [bot] : [];
+          });
+        }
+      } catch {
+        bots = [];
+      }
+      out.push({
+        account: row.account,
+        pctUsed: row.pct_used,
+        resetAt: row.reset_at,
+        reportedAt: row.received_at,
+        bots,
+      });
+    }
+    return out.sort((a, b) => (a.account === "work" ? 0 : 1) - (b.account === "work" ? 0 : 1));
+  }
+
   botDetail(account: Account, id: string): BotDetail | null {
     const row = this.sql
       .exec<BotRow>(
@@ -594,6 +758,18 @@ export class FleetStore extends DurableObject<Env> {
       .map((m) => ({ seq: m.seq, at: m.at, text: m.text }));
     return { now: Date.now(), bot: toBotView(row), summary: row.summary, messages };
   }
+}
+
+function toGrokBot(value: unknown): GrokBotUsage | null {
+  if (typeof value !== "object" || value === null) return null;
+  const row = value as GrokBotUsage;
+  if (typeof row.botId !== "string" || typeof row.name !== "string" || typeof row.share !== "number") return null;
+  return {
+    botId: row.botId,
+    name: row.name,
+    share: row.share,
+    routinesShare: typeof row.routinesShare === "number" ? row.routinesShare : null,
+  };
 }
 
 function rateLimited(retryAfterSec: number): IngestResult {

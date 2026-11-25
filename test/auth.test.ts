@@ -1,7 +1,7 @@
 import { env } from "cloudflare:workers";
 import { beforeEach, describe, expect, it } from "vitest";
-import { accountForKey, parsePasswordHash, sha256Hex, verifyPassword } from "../src/lib/auth";
-import { BASE, LEAF_KEY, TEST_PASSWORD, WORK_KEY } from "./fixtures";
+import { accountForKey, classifyKey, parsePasswordHash, sha256Hex, verifyPassword } from "../src/lib/auth";
+import { BASE, LEAF_KEY, READ_KEY, SESSIONS_KEY, TEST_PASSWORD, WORK_KEY } from "./fixtures";
 import { CHIEF, call, detail, findBot, fleet, freshStore, ingest, login, nextIp, sessionCookie, sql } from "./helpers";
 
 beforeEach(freshStore);
@@ -180,6 +180,16 @@ describe("ingest write keys", () => {
     expect(await accountForKey("short", { INGEST_KEY_WORK: "short", INGEST_KEY_LEAF: LEAF_KEY })).toBeNull();
     expect(await accountForKey(WORK_KEY, {})).toBeNull();
     expect(await accountForKey(null, env)).toBeNull();
+    expect(await classifyKey(SESSIONS_KEY, env)).toBe("sessions");
+    expect(await classifyKey(READ_KEY, env)).toBe("read");
+    expect(await accountForKey(SESSIONS_KEY, env)).toBeNull();
+    expect(await accountForKey(READ_KEY, env)).toBeNull();
+    expect(
+      await classifyKey(WORK_KEY, { INGEST_KEY_WORK: WORK_KEY, INGEST_KEY_LEAF: LEAF_KEY, INGEST_KEY_SESSIONS: WORK_KEY }),
+    ).toBeNull();
+    expect(
+      await accountForKey(LEAF_KEY, { INGEST_KEY_WORK: WORK_KEY, INGEST_KEY_LEAF: LEAF_KEY, READ_KEY: LEAF_KEY }),
+    ).toBeNull();
   });
 });
 
