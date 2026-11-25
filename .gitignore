@@ -10,10 +10,15 @@ dist/
 *.pem
 *.key
 coverage/
+macos/build/
+macos/*.xcodeproj/
+macos/DerivedData/
+macos/*.zip
 .turbo/
 .cache/
 !.dev.vars.example
 # Backstop: secret files must live outside the repo (see docs/DEPLOY.md).
 dashboard-password*
 ingest-key-*
+read-key*
 ingest-url

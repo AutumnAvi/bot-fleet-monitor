@@ -2,7 +2,7 @@
 // write is the dashboard's own "Save for later" flag.
 
 import type { AccountFilter } from "../src/shared/fleet-view";
-import type { ActivityPage, BotDetail, FleetResponse } from "../src/shared/model";
+import type { ActivityPage, BotDetail, StateResponse } from "../src/shared/model";
 
 const TIMEOUT_MS = 15_000;
 
@@ -20,8 +20,8 @@ async function getJson<T>(path: string): Promise<T> {
   return (await res.json()) as T;
 }
 
-export function fetchFleet(account: AccountFilter): Promise<FleetResponse> {
-  return getJson<FleetResponse>(`/api/fleet?account=${account}`);
+export function fetchState(account: AccountFilter): Promise<StateResponse> {
+  return getJson<StateResponse>(`/api/v1/state?account=${account}`);
 }
 
 export function fetchActivity(before: number, account: AccountFilter): Promise<ActivityPage> {

@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Read-only, push-only status dashboard for Avi's Grok Bots (work + Leaf accounts).",
+  "description": "Read-only, push-only dashboard for Avi's Grok Bots (Avi's Work and Admin) plus coding sessions.",
   "engines": {
     "node": ">=22"
   },

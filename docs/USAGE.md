@@ -21,9 +21,9 @@ The monitor is **push-only**. It never asks a bot anything, so it can never cost
    Good keys are rate-limited (120/min per key, 30/min per bot); login is limited to 10
    attempts per IP per 15 minutes.
 6. **The page refreshes from the Worker, not from bots.** While the tab is visible the browser
-   re-reads `/api/fleet` every 30 seconds: two Durable Object calls (session check + fleet read),
-   plus two more for an open bot detail. Hidden tabs do not refresh. This reads stored data only
-   and never reaches a bot.
+   re-reads `/api/v1/state` every 30 seconds, plus the open Focus bot's detail. Hidden tabs do
+   not refresh. The Mac menu bar reads the same endpoint with the read-only key. This reads
+   stored data only and never reaches a bot.
 
 Rough scale: 35 bots × ~4 reports per turn × a few dozen turns a day is a few thousand small
 requests per day, far inside the Workers / Durable Objects free allowances.
@@ -43,7 +43,7 @@ grep -rnE "setAlarm|alarm\(|scheduled\(" src/          # prints nothing
 #    the server never calls it. Expect hits only in src/shared/fleet-view.ts.
 grep -rn "grokbot" src/
 # 4. The browser may only talk to its own origin (CSP connect-src 'self'), and the client's
-#    only requests are GET /api/fleet, /api/activity and /api/bots/… (client/api.ts).
+#    only requests are GET /api/v1/state, /api/activity and /api/bots/… (client/api.ts).
 grep -n "connect-src" src/lib/http.ts
 grep -n "fetch(" client/*.ts
 ```

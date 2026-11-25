@@ -1,8 +1,15 @@
 # Deploying Bot Fleet
 
-Status: **deployed** on 2026-11-25 to `https://bot-fleet-monitor.autumnlakemarketing.workers.dev`
-(account workers.dev subdomain `autumnlakemarketing`). The URL is also in the secrets folder as `ingest-url`.
-A custom domain is not needed; `workers.dev` is fine.
+Status of the **live** worker: v1, deployed 2026-11-25 to
+`https://bot-fleet-monitor.autumnlakemarketing.workers.dev` (account workers.dev subdomain
+`autumnlakemarketing`). The URL is also in the secrets folder as `ingest-url`. A custom domain
+is not needed; `workers.dev` is fine.
+
+This branch (v2) is **not deployed from here**. Avi deploys it from his usual place. Do not
+run `npm run deploy` as part of building or reviewing v2. The live URL keeps serving v1 until
+that deploy. Before that deploy, put the two new secrets below or Wrangler will refuse it
+(`secrets.required` in `wrangler.jsonc`). Data stays in the same Durable Object; the new
+tables are created the first time the v2 worker starts. No new migration tag.
 
 The secrets already exist outside the repo in `/workspace/bot-fleet-monitor-secrets/`
 (mode 700, files mode 600). See the `README.md` in that folder. Never commit or print them.
@@ -40,10 +47,18 @@ S=/workspace/bot-fleet-monitor-secrets
 npx wrangler secret put DASHBOARD_PASSWORD_HASH < "$S/dashboard-password.hash"
 npx wrangler secret put INGEST_KEY_WORK         < "$S/ingest-key-work"
 npx wrangler secret put INGEST_KEY_LEAF         < "$S/ingest-key-leaf"
+npx wrangler secret put INGEST_KEY_SESSIONS     < "$S/ingest-key-sessions"
+npx wrangler secret put READ_KEY                < "$S/read-key"
 ```
 
-The Worker refuses every login while `DASHBOARD_PASSWORD_HASH` is missing or malformed, and
-refuses every ingest while the keys are missing, shorter than 32 characters, or identical.
+`INGEST_KEY_SESSIONS` is the box collector's key for `POST /ingest/v1/sessions` and
+`POST /ingest/v1/usage`. `READ_KEY` is the Mac app's read-only key for `GET /api/v1/state`.
+Grok plan usage uses the existing work or Admin (leaf) key, not a new one. All five secrets
+must differ. The Worker refuses every login while `DASHBOARD_PASSWORD_HASH` is missing or
+malformed, and refuses a key that is missing, shorter than 32 characters, or equal to another
+configured key. Keys are compared as SHA-256 and are never written to logs or to the Durable
+Object. Generate them with `scripts/gen-secrets.mjs` (it writes `ingest-key-sessions` and
+`read-key` next to the v1 files). Contract: `docs/SESSIONS-API.md`. Mac app: `docs/MACOS.md`.
 
 ## 4. Deploy
 

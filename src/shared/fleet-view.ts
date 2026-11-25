@@ -1,7 +1,7 @@
 // Pure view-model logic for the dashboard: filtering, grouping, counts and copy.
 // Lives in shared code so it is unit-tested in the Workers test pool.
 
-import { GROUP_ORDER, LEAF_GROUP, type ActivityItem, type BotView } from "./model";
+import { ACCOUNT_LABEL, GROUP_ORDER, LEAF_GROUP, type Account, type ActivityItem, type BotView } from "./model";
 import { bucketOf, displayState, lastSeenAt, type Bucket, type DisplayState } from "./status";
 import { formatDuration } from "./time";
 
@@ -20,8 +20,8 @@ export interface BotRowView {
   state: DisplayState;
   bucket: Bucket;
   stepText: string;
-  /** grokbot:// prefill link; null for Leaf-account bots (different Grok Bot login). */
-  openUrl: string | null;
+  /** grokbot:// link. Opens whichever Grok Bot account the app is signed into, so the label names the account. */
+  openUrl: string;
 }
 
 export interface GroupView {
@@ -53,9 +53,13 @@ export function needsAttention(bucket: Bucket): boolean {
   return bucket === "needs_me" || bucket === "stuck";
 }
 
-export function openUrl(bot: Pick<BotView, "account" | "id">): string | null {
-  if (bot.account !== "work") return null;
-  return `grokbot://app/v1/prompt?id=${encodeURIComponent(bot.id)}`;
+/** Deep link Avi clicks. The server never calls it. Both accounts use it; the label says which login. */
+export function openUrl(bot: Pick<BotView, "id">): string {
+  return `grokbot://app/v1/agent?id=${encodeURIComponent(bot.id)}`;
+}
+
+export function openLabel(account: Account): string {
+  return account === "leaf" ? "Open in Admin" : `Open in ${ACCOUNT_LABEL.work}`;
 }
 
 export function stepText(bot: BotView, state: DisplayState, now: number): string {

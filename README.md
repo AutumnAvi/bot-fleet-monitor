@@ -1,13 +1,14 @@
 # Bot Fleet monitor
 
-Read-only status dashboard for Avi Weinreb's Grok Bots across two accounts (work + Leaf).
-Avi only, behind a password. Bots **push** short reports while they are already working; the
-dashboard never polls, pings or wakes a bot.
+Read-only dashboard for Avi Weinreb's Grok Bots on two accounts, shown as **Avi's Work**
+and **Admin** (internal ids stay `work` and `leaf`). Avi only, behind a password. Bots
+**push** short reports while they are already working. A box collector pushes coding
+sessions and usage. The dashboard never polls, pings or wakes a bot.
 
-- Light list UI (primary): `docs/mockups/bot-fleet-light.jpg`
-- Activity feed reference: `docs/mockups/bot-fleet-dark-feed.jpg` (rendered in the light theme,
-  right column on wide screens, below the list on narrow ones)
+- v2 layout (Focus, Board, Feed): the option 8 mockups
 - Work-account roster seed: `docs/roster-seed.json`
+- Session, usage and read-key contract: `docs/SESSIONS-API.md`
+- macOS menu-bar app: `docs/MACOS.md`
 
 ## What's here
 
@@ -18,6 +19,7 @@ dashboard never polls, pings or wakes a bot.
 | `src/lib/` | Auth (PBKDF2, constant-time compares, cookies), payload validation, sanitization, HTTP helpers, HTML pages. |
 | `src/shared/` | Types, limits, status model (stale timer), view model and Asia/Hebron time formatting, shared with the client. |
 | `client/` | Browser UI (vanilla TypeScript + CSS, bundled with esbuild into `dist/client/assets`). |
+| `macos/` | SwiftUI menu-bar app. The window is the dashboard; the menu counts Needs my attention. |
 | `test/` | Vitest suites running inside the Workers runtime (`@cloudflare/vitest-plugin`). |
 | `docs/report.sh` | Reporting script for bots (reads URL/key from env). |
 | `docs/BOT-RULE.md` | The instruction text to add to each bot. |
@@ -27,32 +29,32 @@ dashboard never polls, pings or wakes a bot.
 
 ## Dashboard
 
-- Title, search, filter chips (All / Needs me / Working / Idle / Stuck), account switcher
-  (Work | Leaf, Work, Leaf).
-- Count tiles: Needs me (amber), Working (green), Idle (gray), Stuck (red). Clicking a tile filters.
-- Pinned **Needs my attention** section: every bot that is Needs me or Stuck (including
-  stale), newest status first, unless it is saved for later.
-- **Save for later** section (shown when it has bots), most recently saved first. A bot gets
-  there when Avi clicks **Later** on its row or **Save for later** in its detail view, or when
-  the bot reports `save-for-later` (Avi told it "I'll come back to you"). **Move back** takes
-  it out again. A saved bot comes back on its own when it reports a new `waiting_user` or
-  `error` status (it needs Avi again) or reports `avi-replied` (Avi came back to it).
-  `working`, `idle`, `done`, summaries and message copies leave it saved. The flag lives in the
-  Durable Object (`bots.saved_at`).
-- Then collapsible groups in this order: Main, PMs, Asana, Sub-Bots, Unassigned (only when it
-  has bots), Leaf account. Bots shown in the two sections above are not repeated here.
-- Each row: status dot, name, one-line current step, relative time, **Open**.
-  Open is `grokbot://app/v1/prompt?id=<bot-id>` for work-account bots; it is disabled on Leaf
-  rows (those ids belong to a different Grok Bot login). An amber dot after a name means the bot
-  has sent Avi messages since his last reply.
-- Clicking a row opens the detail view: the bot's own "what you need to know" summary and every
-  message it sent Avi since his last reply. Empty states when nothing was pushed; nothing is
-  ever invented.
-- Activity feed derived from ingest events (status changes, waiting, errors, done, summaries,
-  messages, replies), with "View older activity…".
-- All wall-clock times are shown in Asia/Hebron.
-- The only action is Save for later / Move back, which changes the dashboard's own state.
-  No send-to-bot, approvals, start/stop or edit.
+Three tabs, one account filter (All / Avi's Work / Admin). Every attention item has a colored
+account tag: indigo for Avi's Work, green for Admin. A wide-short window (aspect wider than
+2:1) and a tall-narrow window (under 760px) reflow; a normal window is the three-column Focus
+layout. All wall-clock times are Asia/Hebron and labeled.
+
+- **Focus** walks the attention queue one bot at a time (Next, Skip, press N). The card shows
+  the need-to-know summary and messages since Avi's last reply — only text the bot pushed.
+  Up next, Saved for later, and everyone else grouped by account sit beside it.
+- **Board** is Needs me / Working / Saved for later / Idle & done.
+- **Feed** pins attention, shows a saved strip, and lists the activity timeline.
+- **Needs my attention** is Grok bots only: `waiting_user`, `error`, and `working` with no
+  report of any kind for 10 minutes (stale). Coding sessions never enter it.
+- **Save for later** is unchanged: the button, or the bot's `save-for-later` report. A saved
+  bot returns on a new `waiting_user` or `error`, or on `avi-replied`.
+- **Coding sessions** (Claude Code CLI, T3 threads, Cursor local and cloud) are a small
+  "started by bots · FYI only" list: tool, title, live / paused at limit / stalled / finished /
+  failed / aborted / stopped / in review, plus stalled when the process is not alive. Helpers
+  are their own rows. `ownerBotId` links the Grok bot; a null owner is Unassigned. A session
+  `attentionReason` is only an FYI badge. A working bot card just notes "⌨ N coding sessions".
+- **Usage row**: one card per collector account (5-hour and weekly meters, Cursor's three
+  meters, API spend). `claudeMax` is labeled Avi's Work and `claudeAdmin` is labeled Admin.
+  Plus "Grok · Avi's Work" and "Grok · Admin".
+  Per-bot Grok share is hidden until the bar is hovered or tapped.
+- **Open chat** is `grokbot://app/v1/agent?id=<bot-id>`, labeled "Open in Avi's Work" or
+  "Open in Admin", because the Grok Bot app may be signed into the other account.
+- The only write is Save for later / Move back. No send-to-bot, approvals, start/stop or edit.
 
 ### Status model
 
@@ -70,8 +72,8 @@ dashboard never polls, pings or wakes a bot.
 
 `POST /ingest/v1/<kind>` with `Authorization: Bearer <write key>` and
 `Content-Type: application/json`. The key decides the account: the work key can only write
-work-account bots, the Leaf key only Leaf-account bots (an `account` field that disagrees is
-refused with 403).
+Avi's Work bots (`account: "work"`), the Admin key only Admin bots (`account: "leaf"`). An
+`account` field that disagrees is refused with 403. The UI never says "work" or "leaf".
 
 Every body has `botId` (1–64 of `A-Z a-z 0-9 . _ : -`) and may carry `name` (≤60) and `group`
 to register or update the bot. Unknown bots need `name` (Leaf bots always start this way);
@@ -98,9 +100,15 @@ curl and `docs/report.sh` are fine; in Python set e.g. `"User-Agent": "bot-fleet
 Dashboard write (session cookie + same-origin required): `POST /api/bots/<work|leaf>/<id>/saved`
 with `{"saved": true|false}`.
 
-Read API (session cookie required): `GET /api/fleet[?account=work|leaf]`,
-`GET /api/activity?before=<seq>[&account=work|leaf]`, `GET /api/bots/<work|leaf>/<id>`.
-The optional `account` narrows the activity feed; the bot list always has both accounts.
+Collector endpoints (a separate sessions key, not a bot key) and the read-only key are
+specified in `docs/SESSIONS-API.md`: `POST /ingest/v1/sessions`, `POST /ingest/v1/usage`,
+`POST /ingest/v1/grok-usage` (the account's existing bot key), and `GET /api/v1/state`.
+
+Read API for the browser (session cookie required): `GET /api/v1/state[?account=work|leaf]`,
+`GET /api/fleet[?account=work|leaf]`, `GET /api/activity?before=<seq>[&account=work|leaf]`,
+`GET /api/bots/<work|leaf>/<id>`. The optional `account` narrows the activity feed; the bot
+list always has both accounts. `GET /api/v1/state` is also readable with the read-only key.
+That key cannot write and cannot call the other routes.
 
 ## Security notes
 

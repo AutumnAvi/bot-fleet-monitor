@@ -4,4 +4,6 @@ export const TEST_SALT_HEX = "00112233445566778899aabbccddeeff";
 export const TEST_ITERATIONS = 20_000;
 export const WORK_KEY = "bfw_test_work_key_0123456789abcdefghijklmnop";
 export const LEAF_KEY = "bfl_test_leaf_key_0123456789abcdefghijklmnop";
+export const SESSIONS_KEY = "bfs_test_sessions_key_0123456789abcdefghij";
+export const READ_KEY = "bfr_test_read_key_0123456789abcdefghijklmnop";
 export const BASE = "https://fleet.test";

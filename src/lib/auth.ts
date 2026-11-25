@@ -94,30 +94,66 @@ export async function verifyPassword(attempt: string, stored: string | undefined
 export interface KeyEnv {
   INGEST_KEY_WORK?: string;
   INGEST_KEY_LEAF?: string;
+  INGEST_KEY_SESSIONS?: string;
+  READ_KEY?: string;
 }
+
+export type KeyRole = "work" | "leaf" | "sessions" | "read";
 
 function usableKey(value: string | undefined): string | null {
   const key = value?.trim();
   return key && key.length >= MIN_KEY_CHARS ? key : null;
 }
 
+function configuredSecrets(env: KeyEnv): string[] {
+  return [env.INGEST_KEY_WORK, env.INGEST_KEY_LEAF, env.INGEST_KEY_SESSIONS, env.READ_KEY]
+    .map(usableKey)
+    .filter((key): key is string => key !== null);
+}
+
 /**
- * Maps a presented write key to its account. Both comparisons always run, in
- * constant time. If the two configured keys are identical the setup is unsafe
- * (a key would match both accounts), so every key is rejected.
+ * True when two configured secrets are the same string. A key that opened more
+ * than one role would be able to write and read, or write both accounts, so
+ * every presented key is rejected until the secrets differ.
  */
-export async function accountForKey(presented: string | null, env: KeyEnv): Promise<Account | null> {
+export function keysCollide(env: KeyEnv): boolean {
+  const values = configuredSecrets(env);
+  return new Set(values).size !== values.length;
+}
+
+/**
+ * Maps a presented bearer token to exactly one role. Every configured secret
+ * is hashed and compared. Zero matches, two matches, or a colliding
+ * configuration all return null.
+ */
+export async function classifyKey(presented: string | null, env: KeyEnv): Promise<KeyRole | null> {
+  if (keysCollide(env)) return null;
+  if (!presented || presented.length > 512) return null;
   const work = usableKey(env.INGEST_KEY_WORK);
   const leaf = usableKey(env.INGEST_KEY_LEAF);
-  if (!presented || presented.length > 512) return null;
-  if (work !== null && work === leaf) return null;
+  const sessions = usableKey(env.INGEST_KEY_SESSIONS);
+  const read = usableKey(env.READ_KEY);
+  const digest = await sha256(presented);
+  const workMatch = work !== null && timingSafeEqual(digest, await sha256(work));
+  const leafMatch = leaf !== null && timingSafeEqual(digest, await sha256(leaf));
+  const sessionsMatch = sessions !== null && timingSafeEqual(digest, await sha256(sessions));
+  const readMatch = read !== null && timingSafeEqual(digest, await sha256(read));
+  const hits = [workMatch, leafMatch, sessionsMatch, readMatch].filter(Boolean).length;
+  if (hits !== 1) return null;
+  if (workMatch) return "work";
+  if (leafMatch) return "leaf";
+  if (sessionsMatch) return "sessions";
+  return "read";
+}
 
-  const presentedDigest = await sha256(presented);
-  const workMatch = work !== null && timingSafeEqual(presentedDigest, await sha256(work));
-  const leafMatch = leaf !== null && timingSafeEqual(presentedDigest, await sha256(leaf));
-  if (workMatch && !leafMatch) return "work";
-  if (leafMatch && !workMatch) return "leaf";
-  return null;
+/**
+ * Maps a presented write key to its account. The sessions key and the read key
+ * are not accounts. If any two configured secrets are identical, every key is
+ * rejected.
+ */
+export async function accountForKey(presented: string | null, env: KeyEnv): Promise<Account | null> {
+  const role = await classifyKey(presented, env);
+  return role === "work" || role === "leaf" ? role : null;
 }
 
 export function bearerToken(request: Request): string | null {

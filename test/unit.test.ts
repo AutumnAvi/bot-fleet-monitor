@@ -133,11 +133,11 @@ describe("fleet view", () => {
     expect(filtered.attention?.map((r) => r.bot.id)).toEqual(["chief"]);
   });
 
-  it("Open deep link exists only for work bots and encodes the id", () => {
-    expect(openUrl({ account: "work", id: "b0642d5e-4aaf" })).toBe("grokbot://app/v1/prompt?id=b0642d5e-4aaf");
-    expect(openUrl({ account: "work", id: "a:b" })).toBe("grokbot://app/v1/prompt?id=a%3Ab");
-    expect(openUrl({ account: "leaf", id: "x" })).toBeNull();
-    expect(view().groups.find((g) => g.name === "Leaf account")?.rows[0]?.openUrl).toBeNull();
+  it("Open deep link is the agent URL for both accounts and encodes the id", () => {
+    expect(openUrl({ id: "b0642d5e-4aaf" })).toBe("grokbot://app/v1/agent?id=b0642d5e-4aaf");
+    expect(openUrl({ id: "a:b" })).toBe("grokbot://app/v1/agent?id=a%3Ab");
+    expect(openUrl({ id: "x" })).toBe("grokbot://app/v1/agent?id=x");
+    expect(view().groups.find((g) => g.name === "Leaf account")?.rows[0]?.openUrl).toBe("grokbot://app/v1/agent?id=leafy");
   });
 
   it("uses honest copy for unknown and stale bots", () => {
@@ -200,6 +200,8 @@ describe("sanitize", () => {
       "xoxb-1234567890-abcdefghij",
       "AKIAABCDEFGHIJKLMNOP",
       "bfw_abcdefghijklmnopqrstuvwxyz012345",
+      "bfs_abcdefghijklmnopqrstuvwxyz012345",
+      "bfr_abcdefghijklmnopqrstuvwxyz012345",
       "-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----",
     ];
     for (const s of samples) expect(redactSecrets(`x ${s} y`)).toBe(`x ${REDACTED} y`);

@@ -1,0 +1,61 @@
+name: macOS app
+
+on:
+  pull_request:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  app:
+    name: Build Bot Fleet.app
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - name: Tools
+        run: brew install xcodegen
+      - name: Generate and build (Release, ad-hoc signed)
+        working-directory: macos
+        run: |
+          xcodegen generate
+          xcodebuild -project BotFleet.xcodeproj -scheme BotFleet -configuration Release \
+            -derivedDataPath build CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM= \
+            build > build.log 2>&1 && STATUS=0 || STATUS=$?
+          grep -E "error:|BUILD (SUCCEEDED|FAILED)" build.log | head -80 || true
+          test "$STATUS" = 0
+      - name: Verify and zip
+        working-directory: macos
+        run: |
+          APP="build/Build/Products/Release/BotFleet.app"
+          test -d "$APP"
+          codesign --verify --deep --strict "$APP"
+          ditto -c -k --keepParent "$APP" BotFleet.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: BotFleet-macOS
+          path: macos/BotFleet.zip
+          if-no-files-found: error
+
+  release:
+    name: Publish GitHub Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: app
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: BotFleet-macOS
+      - name: Attach the zip to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" BotFleet.zip \
+            --title "Bot Fleet $GITHUB_REF_NAME" \
+            --notes "Ad-hoc signed Bot Fleet.app. Unzip, then right-click the app and choose Open the first time. See docs/MACOS.md."

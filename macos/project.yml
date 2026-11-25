@@ -1,0 +1,40 @@
+name: BotFleet
+options:
+  bundleIdPrefix: com.autumnavi
+  deploymentTarget:
+    macOS: "14.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    CODE_SIGN_IDENTITY: "-"
+    CODE_SIGN_STYLE: Manual
+    DEVELOPMENT_TEAM: ""
+    ENABLE_HARDENED_RUNTIME: NO
+    SWIFT_VERSION: "5.9"
+    MARKETING_VERSION: "2.0"
+    CURRENT_PROJECT_VERSION: "1"
+targets:
+  BotFleet:
+    type: application
+    platform: macOS
+    sources: [App]
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleDisplayName: Bot Fleet
+        CFBundleName: Bot Fleet
+        CFBundleIconName: AppIcon
+    entitlements:
+      path: App/BotFleet.entitlements
+      properties: {}
+    dependencies:
+      - sdk: WebKit.framework
+      - sdk: UserNotifications.framework
+      - sdk: Security.framework
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.autumnavi.BotFleet
+        PRODUCT_NAME: BotFleet
+        GENERATE_INFOPLIST_FILE: NO
+        INFOPLIST_FILE: App/Info.plist
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon

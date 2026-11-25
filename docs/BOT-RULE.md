@@ -55,8 +55,13 @@ curl -sS -o /dev/null --max-time 5 -X POST \
   "${BOT_FLEET_URL%/}/ingest/v1/status" || true
 ```
 
-Endpoints: `/ingest/v1/status`, `/ingest/v1/summary`, `/ingest/v1/message`,
-`/ingest/v1/avi-replied`, `/ingest/v1/save-for-later` (body: just `botId`, plus `name` for Leaf bots).
+Endpoints a bot may call: `/ingest/v1/status`, `/ingest/v1/summary`, `/ingest/v1/message`,
+`/ingest/v1/avi-replied`, `/ingest/v1/save-for-later` (body: just `botId`, plus `name` for Admin/Leaf bots).
+
+Coding sessions, pool usage and the Grok plan bar are **not** bot reports. Do not post to
+`/ingest/v1/sessions`, `/ingest/v1/usage` or `/ingest/v1/grok-usage`. A collector on the box
+does that with its own key. See `docs/SESSIONS-API.md`. The dashboard calls the two accounts
+"Avi's Work" and "Admin"; your `BOT_FLEET_BOT_ID` and the account key do not change.
 
 **Python or other HTTP clients:** always send a `User-Agent` header (e.g.
 `bot-fleet-report/1.0`). Cloudflare blocks Python's default `Python-urllib` agent with a 403
