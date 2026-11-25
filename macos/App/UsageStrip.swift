@@ -203,17 +203,25 @@ private struct UsageTileView: View {
     let now: Double
     @Environment(\.widthClass) private var width
     @State private var showBreakdown = false
+    /// A click keeps the breakdown open after the pointer leaves; hover alone shows it while over the tile.
+    @State private var pinned = false
 
     var body: some View {
         if let account = tile.grokAccount {
             card
                 .contentShape(Rectangle())
-                .onHover { inside in if inside { showBreakdown = true } }
-                .onTapGesture { showBreakdown.toggle() }
+                .onHover { inside in showBreakdown = inside || pinned }
+                .onTapGesture {
+                    pinned.toggle()
+                    showBreakdown = pinned
+                }
                 .popover(isPresented: $showBreakdown, arrowEdge: .bottom) {
                     GrokBreakdown(account: account, usage: tile.grokUsage, now: now)
                 }
-                .help("Hover for the per-bot breakdown")
+                .onChange(of: showBreakdown) { _, open in
+                    if !open { pinned = false }
+                }
+                .help("Hover for the per-bot breakdown; click to keep it open")
         } else {
             card
         }
