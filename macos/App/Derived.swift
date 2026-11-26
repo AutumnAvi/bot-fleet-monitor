@@ -40,6 +40,8 @@ struct FleetDerived {
     let activity: [ActivityItem]
     /// Latest summary text per bot (`account:id`), from the activity page.
     private let summaries: [String: String]
+    /// The activity page in the filter, newest first, before hiding or collapsing.
+    private let page: [ActivityItem]
 
     private let byKey: [String: BotRow]
     private let byId: [String: [Bot]]
@@ -90,7 +92,8 @@ struct FleetDerived {
         sessions = owned
         orphans = filter == .all ? lost : []
         let newestFirst = state.activity.sorted { ($0.at, $0.seq) > ($1.at, $1.seq) }
-        activity = Rules.visibleActivity(newestFirst.filter { filter.matches($0.account) })
+        page = newestFirst.filter { filter.matches($0.account) }
+        activity = Rules.visibleActivity(page)
         var latest: [String: String] = [:]
         for item in newestFirst where item.kind == "summary" && latest[item.botKey] == nil {
             if let text = item.detail, !text.isEmpty { latest[item.botKey] = text }
@@ -131,8 +134,9 @@ struct FleetDerived {
 
     /// Activity for one bot, newest first.
     func activity(for bot: Bot) -> [ActivityItem] {
-        // Collapsed again: repeats split by another bot's update in the Feed are back to back here.
-        Rules.visibleActivity(activity.filter { $0.account == bot.account && $0.botId == bot.id })
+        // One pass over the bot's own events: repeats split by another bot's update in the Feed are
+        // back to back here.
+        Rules.visibleActivity(page.filter { $0.account == bot.account && $0.botId == bot.id })
     }
 
     /// Group cards for one account, in roster group order. Empty groups are dropped.

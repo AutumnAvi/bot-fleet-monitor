@@ -330,13 +330,25 @@ final class FleetModel: ObservableObject {
         }
     }
 
-    /// Drops queued and unanswered Save for later changes and the toast (new server or key).
+    /// New server or key: queued changes are not sent, unanswered ones are put back to what Fleet
+    /// confirmed, and the toast goes. The chain is kept so a later save still waits for a POST that
+    /// is already out; once it settles the app reads Fleet again.
     func resetSaves() {
         saveEpoch += 1
-        saveChain?.cancel()
-        saveChain = nil
+        if var current = state {
+            for (key, entry) in pendingSaved {
+                current.applySaved(key: key, savedAt: entry.confirmed)
+                if entry.confirmed == nil { seen.insert(key) }
+            }
+            state = current
+        }
         pendingSaved = [:]
         toast = nil
+        let old = saveChain
+        saveChain = Task { [weak self] in
+            await old?.value
+            self?.poke()
+        }
     }
 
     /// Settings → Remove: no control key, so no buttons and nothing left to send.
