@@ -19,6 +19,15 @@ function arg(name) {
   return i === -1 ? undefined : process.argv[i + 1];
 }
 
+// Unknown flags (including "--only=x" spellings) are refused: a silently ignored
+// --only would fall back to writing, or with --force rotating, every secret.
+const KNOWN_FLAGS = ["--dir", "--force", "--iterations", "--only"];
+const unknownFlag = process.argv.slice(2).find((a) => a.startsWith("--") && !KNOWN_FLAGS.includes(a));
+if (unknownFlag !== undefined) {
+  console.error(`unknown option ${unknownFlag.split("=")[0]} (use "--only control-key", with a space)`);
+  process.exit(2);
+}
+
 const dir = arg("--dir");
 const force = process.argv.includes("--force");
 const iterations = Number(arg("--iterations") ?? DEFAULT_ITERATIONS);
