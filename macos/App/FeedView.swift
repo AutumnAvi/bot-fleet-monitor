@@ -114,7 +114,7 @@ struct FeedView: View {
     /// The account chips set the window's account filter, which reads that account's own page of
     /// updates from the server (not just a slice of the shared 40). "Needs me" narrows what was read.
     private var shownActivity: [ActivityItem] {
-        d.activity.filter { !needsOnly || FeedChip.asksAvi($0) }.sorted { ($0.at, $0.seq) > ($1.at, $1.seq) }
+        d.activity.filter { !needsOnly || FeedChip.asksAvi($0) }
     }
 
     private func isOn(_ option: FeedChip) -> Bool {
@@ -412,13 +412,17 @@ private struct FeedTimelineRow: View {
                 HStack(spacing: 6) {
                     Text(item.botName).font(Theme.F.bodyBold).foregroundStyle(Theme.text).lineLimit(1)
                     AccountTag(account: item.account)
-                    Pill(text: Rules.activityBadge(kind: item.kind), tone: tone)
+                    Pill(text: Rules.activityLabel(kind: item.kind), tone: tone)
                     Spacer(minLength: 8)
                     Text(Fmt.clockOrDate(item.at, now: now))
                         .font(Theme.F.caption).foregroundStyle(Theme.text3)
                         .lineLimit(1).fixedSize().help(Fmt.full(item.at))
                 }
-                Text(message).font(.system(size: 14)).foregroundStyle(Theme.text).fixedSize(horizontal: false, vertical: true)
+                if let detail = Rules.activityDetail(kind: item.kind, detail: item.detail) {
+                    Text(detail).font(.system(size: 14)).foregroundStyle(Theme.text)
+                        .lineLimit(2).truncationMode(.tail).fixedSize(horizontal: false, vertical: true)
+                        .help(detail)
+                }
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 11)
@@ -431,11 +435,5 @@ private struct FeedTimelineRow: View {
                 Rectangle().fill(Theme.line).frame(width: 2).padding(.top, 40).padding(.leading, 19)
             }
         }
-    }
-
-    /// A message shows its first words as a quote; other kinds use the shared feed copy.
-    private var message: String {
-        if item.kind == "message", let detail = item.detail { return "“\(detail)”" }
-        return Rules.activityText(kind: item.kind, detail: item.detail)
     }
 }

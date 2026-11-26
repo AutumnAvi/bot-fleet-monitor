@@ -82,14 +82,18 @@ struct FocusCard: View {
     }
 
     private var happening: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            SectionLabel(text: "What's happening")
-            Text(row.step).font(.system(size: 15)).foregroundStyle(Theme.text).fixedSize(horizontal: false, vertical: true)
-            if let seen = Rules.lastSeenAt(row.bot) {
-                let age = Fmt.age(seen, now: d.now)
-                let ago = age == "now" ? "just now" : age + " ago"
-                caption("Last report \(Fmt.clockOrDate(seen, now: d.now)) · \(ago)")
+        let line = d.oneLine(row)
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                SectionLabel(text: "What's happening")
+                Spacer(minLength: 6)
+                if let seen = Rules.lastSeenAt(row.bot) {
+                    caption(Fmt.ago(seen, now: d.now)).help(Fmt.full(seen))
+                }
             }
+            Text(line).font(.system(size: 15)).foregroundStyle(Theme.text)
+                .lineLimit(2).truncationMode(.tail).fixedSize(horizontal: false, vertical: true)
+                .help(line)
             ForEach(Array(botSessions.prefix(2)), id: \.id) { session in
                 sessionBox(session)
             }
@@ -124,43 +128,45 @@ struct FocusCard: View {
 
     private var recent: some View {
         VStack(alignment: .leading, spacing: 8) {
-            SectionLabel(text: activity.isEmpty ? "Recent from this bot" : "Recent from this bot · \(activity.count)")
+            SectionLabel(text: activity.isEmpty ? "Recent" : "Recent · \(activity.count)")
             if activity.isEmpty {
-                Text("No recent updates in the feed.").font(Theme.F.small).foregroundStyle(Theme.text3)
+                caption("Nothing new from this bot.")
             }
             ForEach(Array(activity.prefix(3)), id: \.seq) { item in
                 activityBlock(item)
             }
-            if row.bot.unread > 0 {
-                caption("\(FocusText.plural(row.bot.unread, "message")) since your last reply")
-            }
             if let at = row.bot.lastAviReplyAt {
-                caption("Your last reply · \(Fmt.full(at))")
+                caption("You replied \(Fmt.pastClock(at, now: d.now))").help(Fmt.full(at))
             }
         }
     }
 
     private func caption(_ text: String) -> some View {
-        Text(text).font(Theme.F.caption).foregroundStyle(Theme.text3)
+        Text(text).font(Theme.F.caption).foregroundStyle(Theme.text3).lineLimit(1)
     }
 
-    /// One feed item with a coloured left edge. A message shows its first 80 characters, quoted.
+    /// One update with a coloured left edge: "12:47 PM · Needs you", then its text (2 lines max).
     private func activityBlock(_ item: ActivityItem) -> some View {
-        let text: String
-        if item.kind == "message", let detail = item.detail {
-            text = "“\(detail)”"
-        } else {
-            text = Rules.activityText(kind: item.kind, detail: item.detail)
-        }
+        let tone = Rules.activityTone(kind: item.kind)
+        let detail = Rules.activityDetail(kind: item.kind, detail: item.detail)
         return VStack(alignment: .leading, spacing: 3) {
-            Text(Fmt.clockOrDate(item.at, now: d.now)).font(Theme.F.caption).foregroundStyle(Theme.text3)
-            Text(text).font(Theme.F.body).foregroundStyle(Theme.text).fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 5) {
+                Text(Fmt.clockOrDate(item.at, now: d.now)).foregroundStyle(Theme.text3)
+                Text("·").foregroundStyle(Theme.text3)
+                Text(Rules.activityLabel(kind: item.kind)).fontWeight(.semibold).foregroundStyle(Theme.fg(tone))
+            }
+            .font(Theme.F.caption).lineLimit(1)
+            if let detail {
+                Text(detail).font(Theme.F.body).foregroundStyle(Theme.text)
+                    .lineLimit(2).truncationMode(.tail).fixedSize(horizontal: false, vertical: true)
+                    .help(detail)
+            }
         }
         .padding(.leading, 15).padding(.trailing, 12).padding(.vertical, 9)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Theme.surface2)
         .overlay(alignment: .leading) {
-            Rectangle().fill(Theme.fill(Rules.activityTone(kind: item.kind))).frame(width: 3)
+            Rectangle().fill(Theme.fill(tone)).frame(width: 3)
         }
         .clipShape(RoundedRectangle(cornerRadius: 6))
     }

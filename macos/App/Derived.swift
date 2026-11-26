@@ -36,8 +36,10 @@ struct FleetDerived {
     let sessions: [CodingSession]
     /// Sessions with no owner on the roster. Only shown under All.
     let orphans: [CodingSession]
-    /// Activity in the filter, newest first.
+    /// Activity in the filter as lists show it: newest first, no summaries, repeats collapsed.
     let activity: [ActivityItem]
+    /// Latest summary text per bot (`account:id`), from the activity page.
+    private let summaries: [String: String]
 
     private let byKey: [String: BotRow]
     private let byId: [String: [Bot]]
@@ -87,7 +89,13 @@ struct FleetDerived {
         }
         sessions = owned
         orphans = filter == .all ? lost : []
-        activity = state.activity.filter { filter.matches($0.account) }
+        let newestFirst = state.activity.sorted { ($0.at, $0.seq) > ($1.at, $1.seq) }
+        activity = Rules.visibleActivity(newestFirst.filter { filter.matches($0.account) })
+        var latest: [String: String] = [:]
+        for item in newestFirst where item.kind == "summary" && latest[item.botKey] == nil {
+            if let text = item.detail, !text.isEmpty { latest[item.botKey] = text }
+        }
+        summaries = latest
     }
 
     private static func rosterOrder(_ a: BotRow, _ b: BotRow) -> Bool {
@@ -98,6 +106,12 @@ struct FleetDerived {
     }
 
     func row(_ key: String) -> BotRow? { byKey[key] }
+
+    /// The bot's one line: its latest summary while it has one, else its step.
+    func oneLine(_ row: BotRow) -> String {
+        guard row.bot.summaryAt != nil, let summary = summaries[row.key] else { return row.step }
+        return summary
+    }
 
     /// The bot that started a session: Avi's Work first when the id is on both rosters.
     func owner(of session: CodingSession) -> Bot? {

@@ -138,22 +138,50 @@ enum Rules {
         return out.isEmpty ? "•" : out
     }
 
-    /// Feed copy for one activity item, without the bot name.
-    static func activityText(kind: String, detail: String?) -> String {
-        let d = detail
+    /// Short label for an activity kind (src/shared/fleet-view.ts `activityLabel`).
+    static func activityLabel(kind: String) -> String {
         switch kind {
-        case "working": return d ?? "Started working"
-        case "waiting_user": return d.map { "Needs you: \($0)" } ?? "Needs you"
-        case "error": return d.map { "Stuck: \($0)" } ?? "Stuck"
-        case "idle": return d.map { "Idle · \($0)" } ?? "Went idle"
-        case "done": return d.map { "Finished: \($0)" } ?? "Finished"
-        case "summary": return "Updated need-to-know"
-        case "message": return d.map { "Messaged you: “\($0)”" } ?? "Messaged you"
+        case "working": return "Working"
+        case "waiting_user": return "Needs you"
+        case "error": return "Stuck"
+        case "idle": return "Idle"
+        case "done": return "Done"
+        case "summary": return "Summary"
+        case "message": return "Sent you"
         case "avi_replied": return "You replied"
-        case "saved": return d.map { "Saved for later · \($0)" } ?? "Saved for later"
-        case "unsaved": return d.map { "Back from Save for later · \($0)" } ?? "Back from Save for later"
-        default: return d ?? kind
+        case "saved": return "Saved"
+        case "unsaved": return "Unsaved"
+        default: return kind
         }
+    }
+
+    /// What comes after the label: the step, or the message text quoted. Never a prefix.
+    static func activityDetail(kind: String, detail: String?) -> String? {
+        guard let detail, !detail.isEmpty, kind != "summary" else { return nil }
+        return kind == "message" ? "“\(detail)”" : detail
+    }
+
+    /// Activity as lists show it, newest first in and out (fleet-view.ts `visibleActivity`).
+    /// `summary` events are hidden: the latest summary is the bot's one line instead. Back-to-back
+    /// events from one bot with the same text become one row: the newest, or the status when a
+    /// message copy repeats it.
+    static func visibleActivity(_ items: [ActivityItem]) -> [ActivityItem] {
+        var out: [ActivityItem] = []
+        // True once the last kept row has absorbed an older repeat; then it stays as is.
+        var merged = false
+        for item in items where item.kind != "summary" {
+            if let prev = out.last, prev.account == item.account, prev.botId == item.botId,
+               item.detail != nil ? prev.detail == item.detail : (prev.detail == nil && prev.kind == item.kind) {
+                if !merged && prev.kind == "message" && (item.kind == "waiting_user" || item.kind == "error") {
+                    out[out.count - 1] = item
+                }
+                merged = true
+                continue
+            }
+            out.append(item)
+            merged = false
+        }
+        return out
     }
 
     static func activityTone(kind: String) -> Tone {
@@ -163,23 +191,6 @@ enum Rules {
         case "error": return .red
         case "summary", "avi_replied", "saved", "unsaved": return .violet
         default: return .gray
-        }
-    }
-
-    /// Short badge for a feed row.
-    static func activityBadge(kind: String) -> String {
-        switch kind {
-        case "working": return "Working"
-        case "waiting_user": return "Needs me"
-        case "error": return "Stuck"
-        case "idle": return "Idle"
-        case "done": return "Done"
-        case "summary": return "Update"
-        case "message": return "Message"
-        case "avi_replied": return "You replied"
-        case "saved": return "Saved"
-        case "unsaved": return "Back"
-        default: return kind
         }
     }
 }
@@ -251,6 +262,19 @@ enum Fmt {
         let days = ((at - now) / 86_400_000).rounded()
         if days >= -1 && days <= 6 { return weekdayFmt.string(from: date(at)) }
         return shortDateFmt.string(from: date(at))
+    }
+
+    /// "1:53 PM" today, "Wed 1:53 PM" within the last week, otherwise "Nov 23, 1:53 PM".
+    static func pastClock(_ at: Double, now: Double) -> String {
+        if isSameDay(at, now) { return clock(at) }
+        if now - at < 6 * 86_400_000 { return "\(weekdayFmt.string(from: date(at))) \(clock(at))" }
+        return "\(shortDateFmt.string(from: date(at))), \(clock(at))"
+    }
+
+    /// "11h ago", or "just now".
+    static func ago(_ at: Double, now: Double) -> String {
+        let short = Self.age(at, now: now)
+        return short == "now" ? "just now" : "\(short) ago"
     }
 
     /// A past time: a clock today, a weekday within the last week, otherwise "Nov 23".
