@@ -24,7 +24,7 @@ struct BoardView: View {
             VStack(alignment: .leading, spacing: Self.gap) {
                 needsColumn(scrolls: false, perRow: 1)
                 workingColumn(scrolls: false, perRow: 2, compact: true)
-                savedColumn(scrolls: false, sessionLimit: 4)
+                savedColumn(scrolls: false)
                 idleColumn(scrolls: false, chips: true)
             }
             .padding(Self.pad)
@@ -42,7 +42,7 @@ struct BoardView: View {
             HStack(alignment: .top, spacing: Self.gap) {
                 needsColumn(scrolls: true, perRow: wide ? 2 : 1).frame(width: unit * ratios[0])
                 workingColumn(scrolls: true, perRow: wide ? 2 : 1, compact: false).frame(width: unit * ratios[1])
-                savedColumn(scrolls: true, sessionLimit: 8).frame(width: unit * ratios[2])
+                savedColumn(scrolls: true).frame(width: unit * ratios[2])
                 idleColumn(scrolls: true, chips: false).frame(width: unit * ratios[3])
             }
             .padding(Self.pad)
@@ -68,13 +68,11 @@ struct BoardView: View {
         }
     }
 
-    /// Saved cards, then the coding sessions panel (FYI only).
-    private func savedColumn(scrolls: Bool, sessionLimit: Int) -> some View {
+    private func savedColumn(scrolls: Bool) -> some View {
         BoardColumn(.saved, count: d.saved.count, byAccount: grouped(d.saved), scrolls: scrolls) {
             cards(d.saved, lane: .saved, perRow: 1) { row in
                 BoardSavedCard(row: row, now: d.now)
             }
-            SessionsPanel(d: d, limit: sessionLimit)
         }
     }
 

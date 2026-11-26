@@ -43,7 +43,6 @@ struct FeedView: View {
     private var sideColumn: some View {
         VStack(alignment: .leading, spacing: 14) {
             workingCard
-            SessionsPanel(d: d, limit: 6)
             byAccountCard
         }
     }
@@ -54,7 +53,6 @@ struct FeedView: View {
             attentionSection
             savedSection
             workingChips
-            SessionsPanel(d: d, limit: 4, startCollapsed: true)
             timelineSection
         }
     }

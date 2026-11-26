@@ -1,8 +1,7 @@
 import SwiftUI
 
 /// Focus tab (option 8): one bot that needs Avi at a time, the rest of the queue, Save for later,
-/// everything else by account, and the coding sessions panel. Read-only: the only actions open a
-/// chat or a PR, or change which bot is on the card.
+/// and everything else by account. Coding sessions live in the strip under the usage bars.
 struct FocusView: View {
     @ObservedObject var model: FleetModel
     let d: FleetDerived
@@ -38,12 +37,11 @@ struct FocusView: View {
                 upNext
                 savedSection
                 byAccount
-                SessionsPanel(d: d, limit: 4, startCollapsed: true)
             }
             .padding(.horizontal, pad)
         } else {
-            // wide: focus 40% | up next, saved, sessions 28% | by account 32%.
-            // regular: focus, up next, saved 60% | by account, sessions 40%.
+            // wide: focus 40% | up next, saved 28% | by account 32%.
+            // regular: focus, up next, saved 60% | by account 40%.
             GeometryReader { geo in
                 let wide = widthClass == .wide
                 let w = max(0, geo.size.width - pad * 2 - gap * (wide ? 2 : 1))
@@ -61,13 +59,11 @@ struct FocusView: View {
                         column {
                             upNext
                             savedSection
-                            SessionsPanel(d: d, limit: 6)
                         }
                         .frame(width: w * 0.28)
                     }
                     column {
                         byAccount
-                        if !wide { SessionsPanel(d: d) }
                     }
                     .frame(width: w * (wide ? 0.32 : 0.40))
                 }

@@ -54,6 +54,7 @@ jobs:
           grep -F 'PARTITION attention=5 saved=1 working=7 idle=23 rows=36' shots/focus.log
           # Summaries hidden and the repeated Internal DAM message folded into its status.
           grep -F 'ACTIVITY raw=36 visible=32' shots/focus.log
+          grep -F 'STRIP sessions=9 running=6' shots/focus.log
           grep -F 'SYMBOLS shapes=11 initials=25' shots/focus.log
           grep -F 'SYMBOL Chief · Chief of Staff | star black' shots/focus.log
           grep -E '^SYMBOL dr eggbot \| initials DE #[0-9]$' shots/focus.log

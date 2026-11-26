@@ -1,103 +1,88 @@
 import AppKit
 import SwiftUI
 
-/// "⌨ Coding sessions" — Claude Code, T3 and Cursor runs from the box collector, each with the bot
-/// that started it. FYI only: a session is never a Needs-my-attention item and has no Open chat.
-struct SessionsPanel: View {
+/// One line under the usage bars on every tab: "⌨ [3 running] [T3 Reply drafts 4/6 ◆] … +2".
+/// Coding sessions from the box collector, each with the bot that started it. FYI only: a session
+/// is never a Needs-my-attention item and has no Open chat. Click to expand the list in place.
+/// Hidden when no session ran in the last 24 hours.
+struct SessionsStrip: View {
     let d: FleetDerived
-    /// Rows shown before "+N more".
-    var limit = 6
-    /// Narrow windows start with the panel folded into one line.
-    var startCollapsed = false
-
+    @Environment(\.widthClass) private var width
     @State private var expanded = false
-    @State private var showAll = false
 
-    private var all: [CodingSession] { d.sessions }
+    static let windowMs: Double = 24 * 60 * 60 * 1000
+
+    /// Active sessions, plus any that changed in the last 24 hours. Orphans only under All.
+    static func recent(_ d: FleetDerived) -> [CodingSession] {
+        Sessions.sorted((d.sessions + d.orphans).filter { Sessions.isActive($0) || d.now - $0.updatedAt < Self.windowMs })
+    }
+
+    private var chipLimit: Int { width == .narrow ? 1 : width == .regular ? 3 : 5 }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            header
-            if isOpen {
-                if all.isEmpty && d.orphans.isEmpty {
-                    Text("No coding sessions right now.")
-                        .font(Theme.F.small)
-                        .foregroundStyle(Theme.text3)
-                        .padding(.top, 8)
+        let all = Self.recent(d)
+        if !all.isEmpty {
+            VStack(alignment: .leading, spacing: 0) {
+                Button { expanded.toggle() } label: { line(all) }
+                    .buttonStyle(PlainRowButtonStyle())
+                    .help(expanded ? "Hide coding sessions" : "Show every coding session")
+                if expanded {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 0) {
+                            ForEach(Array(all.enumerated()), id: \.element.id) { index, session in
+                                if index > 0 { Divider().overlay(Theme.line) }
+                                SessionRow(session: session, owner: d.ownerName(of: session),
+                                           ownerBot: d.owner(of: session), now: d.now)
+                            }
+                        }
+                        .padding(.horizontal, 16).padding(.bottom, 6)
+                    }
+                    .frame(maxHeight: 300)
+                    .fixedSize(horizontal: false, vertical: true)
                 }
-                ForEach(Array(shown.enumerated()), id: \.element.id) { index, session in
-                    if index > 0 { Divider().overlay(Theme.line) }
-                    SessionRow(session: session, owner: d.ownerName(of: session), now: d.now)
-                }
-                footer
             }
-        }
-        .padding(12)
-        .card(fill: Theme.surface2)
-    }
-
-    private var isOpen: Bool { !startCollapsed || expanded }
-    private var shown: [CodingSession] { showAll ? all : Array(all.prefix(limit)) }
-
-    @ViewBuilder private var header: some View {
-        if startCollapsed {
-            Button { expanded.toggle() } label: { headerLine }
-                .buttonStyle(PlainRowButtonStyle())
-        } else {
-            headerLine
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Theme.surface2)
+            .overlay(alignment: .top) { Rectangle().fill(Theme.line).frame(height: 1) }
         }
     }
 
-    private var headerLine: some View {
-        HStack(spacing: 6) {
+    private func line(_ all: [CodingSession]) -> some View {
+        let running = all.filter(Sessions.isLive).count
+        let shown = Array(all.prefix(chipLimit))
+        return HStack(spacing: 8) {
             Image(systemName: "keyboard").font(.system(size: 11)).foregroundStyle(Theme.text2)
-            Text("Coding sessions").font(Theme.F.bodyBold).foregroundStyle(Theme.text)
-            if !isOpen {
-                Text("· \(Sessions.summary(all))").font(Theme.F.small).foregroundStyle(Theme.text3).lineLimit(1)
+            Pill(text: running == 0 ? "none running" : "\(running) running", tone: running == 0 ? .gray : .blue, bold: true)
+            ForEach(shown, id: \.id) { session in chip(session) }
+            if all.count > shown.count {
+                Text("+\(all.count - shown.count)").font(Theme.F.smallBold).foregroundStyle(Theme.text2).fixedSize()
             }
-            Spacer(minLength: 8)
-            if isOpen {
-                Text("started by bots · FYI only").font(Theme.F.caption).foregroundStyle(Theme.text3).lineLimit(1)
-            }
-            if startCollapsed {
-                Image(systemName: expanded ? "chevron.down" : "chevron.right")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(Theme.text3)
-            }
+            Spacer(minLength: 6)
+            Image(systemName: expanded ? "chevron.up" : "chevron.down")
+                .font(.system(size: 10, weight: .semibold)).foregroundStyle(Theme.text3)
         }
-        .padding(.bottom, isOpen ? 6 : 0)
+        .padding(.horizontal, 16)
+        .frame(maxWidth: .infinity, minHeight: 32, alignment: .leading)
+        .contentShape(Rectangle())
     }
 
-    @ViewBuilder private var footer: some View {
-        let extra = all.count - shown.count
-        let orphanText = orphanLine
-        if extra > 0 || orphanText != nil || (showAll && all.count > limit) {
-            HStack(spacing: 4) {
-                if extra > 0 {
-                    Button("+\(extra) more") { showAll = true }
-                        .buttonStyle(PlainRowButtonStyle())
-                        .foregroundStyle(Theme.fg(.blue))
-                } else if showAll && all.count > limit {
-                    Button("Show fewer") { showAll = false }
-                        .buttonStyle(PlainRowButtonStyle())
-                        .foregroundStyle(Theme.fg(.blue))
-                }
-                if let orphanText {
-                    if extra > 0 || (showAll && all.count > limit) { Text("·").foregroundStyle(Theme.text3) }
-                    Text(orphanText).foregroundStyle(Theme.text3).lineLimit(1).truncationMode(.tail)
-                }
+    /// Tool, short title, step x/y and the starting bot's symbol.
+    private func chip(_ s: CodingSession) -> some View {
+        HStack(spacing: 5) {
+            ToolBadge(session: s)
+            Text(s.title).font(Theme.F.small).foregroundStyle(Theme.text).lineLimit(1).truncationMode(.tail)
+                .frame(maxWidth: width == .narrow ? 150 : 180, alignment: .leading)
+            if let step = Sessions.stepText(s) {
+                Text(step).font(Theme.F.caption).monospacedDigit().foregroundStyle(Theme.fg(Sessions.tone(s))).fixedSize()
             }
-            .font(Theme.F.caption)
-            .padding(.top, 8)
+            if let owner = d.owner(of: s) {
+                BotSymbol(bot: owner, size: 13)
+            }
         }
-    }
-
-    /// "1 session with no bot found (Claude CLI ~/scratch)".
-    private var orphanLine: String? {
-        let orphans = d.orphans
-        guard let first = orphans.first else { return nil }
-        if orphans.count == 1 { return "1 session with no bot found (\(first.title))" }
-        return "\(orphans.count) sessions with no bot found"
+        .padding(.horizontal, 7).padding(.vertical, 3)
+        .background(Capsule().fill(Theme.surface))
+        .overlay(Capsule().strokeBorder(Theme.line))
+        .help("\(Sessions.title(s)) · \(Sessions.statusLabel(s)) · started by \(d.ownerName(of: s))")
     }
 }
 
@@ -105,6 +90,7 @@ struct SessionsPanel: View {
 struct SessionRow: View {
     let session: CodingSession
     let owner: String
+    var ownerBot: Bot?
     let now: Double
 
     private var link: URL? { Sessions.safeURL(session.prUrl) ?? Sessions.safeURL(session.agentUrl) }
@@ -141,6 +127,7 @@ struct SessionRow: View {
             }
             HStack(spacing: 6) {
                 Text("started by").foregroundStyle(Theme.text3)
+                if let ownerBot { BotSymbol(bot: ownerBot, size: 12) }
                 Text(owner).foregroundStyle(Theme.text2).lineLimit(1).truncationMode(.tail)
                 if let progress = Sessions.progress(session) {
                     Bar(fraction: progress, tone: tone, height: 3).frame(width: 56)

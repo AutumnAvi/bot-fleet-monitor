@@ -83,6 +83,8 @@ enum Snapshot {
         let d = FleetDerived(state: state, filter: model.filter, now: model.now)
         print("STATE version=\(state.version) bots=\(state.bots.count) attention=\(state.attention.count) sessions=\(state.sessions.count) accounts=\(state.accounts.count) grok=\(state.grok.count) activity=\(state.activity.count)")
         print("PARTITION attention=\(d.attention.count) saved=\(d.saved.count) working=\(d.working.count) idle=\(d.idle.count) rows=\(d.rows.count)")
+        let strip = SessionsStrip.recent(d)
+        print("STRIP sessions=\(strip.count) running=\(strip.filter(Sessions.isLive).count)")
         print("ACTIVITY raw=\(state.activity.count) visible=\(d.activity.count)")
         let shaped = d.rows.filter { BotLook.shape($0.bot.avatar?.shape) != nil }.count
         print("SYMBOLS shapes=\(shaped) initials=\(d.rows.count - shaped)")
