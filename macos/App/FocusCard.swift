@@ -49,7 +49,7 @@ struct FocusCard: View {
 
     private var band: some View {
         HStack(spacing: 14) {
-            Avatar(name: row.bot.name, tone: tone, size: 52)
+            BotSymbol(bot: row.bot, size: 52, tile: true)
             VStack(alignment: .leading, spacing: 5) {
                 Text(row.bot.name).font(.system(size: 20, weight: .bold)).foregroundStyle(Theme.text).lineLimit(2)
                 HStack(spacing: 6) {

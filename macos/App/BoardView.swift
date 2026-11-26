@@ -258,6 +258,7 @@ private struct BoardNeedsCard: View {
         VStack(alignment: .leading, spacing: 5) {
             BoardGroupLine(row: row)
             HStack(spacing: 8) {
+                BotSymbol(bot: row.bot)
                 Button(action: onFocus) {
                     Text(row.bot.name).font(Theme.F.cardTitle).foregroundStyle(Theme.text).lineLimit(1)
                 }
@@ -298,6 +299,7 @@ private struct BoardWorkingCard: View {
         VStack(alignment: .leading, spacing: compact ? 3 : 5) {
             if !compact { BoardGroupLine(row: row) }
             HStack(spacing: 8) {
+                BotSymbol(bot: row.bot)
                 Text(row.bot.name).font(Theme.F.cardTitle).foregroundStyle(Theme.text).lineLimit(1)
                 Spacer(minLength: 6)
                 if let at = Rules.lastSeenAt(row.bot) { BoardTime(text: Fmt.age(at, now: d.now)) }
@@ -326,6 +328,7 @@ private struct BoardSavedCard: View {
         VStack(alignment: .leading, spacing: 5) {
             BoardGroupLine(row: row)
             HStack(spacing: 8) {
+                BotSymbol(bot: row.bot)
                 Text(row.bot.name).font(Theme.F.cardTitle).foregroundStyle(Theme.text).lineLimit(1)
                 Pill(text: "Saved", tone: .violet, uppercase: true)
                 Spacer(minLength: 6)

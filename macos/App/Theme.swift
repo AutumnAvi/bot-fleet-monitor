@@ -208,24 +208,6 @@ struct Bar: View {
     }
 }
 
-/// Initials in a rounded square (focus card) or circle (feed).
-struct Avatar: View {
-    let name: String
-    let tone: Tone
-    var size: CGFloat = 36
-    var circle = false
-
-    var body: some View {
-        Text(Rules.initials(name))
-            .font(.system(size: size * 0.36, weight: .bold))
-            .foregroundStyle(.white)
-            .frame(width: size, height: size)
-            .background(
-                RoundedRectangle(cornerRadius: circle ? size / 2 : size * 0.22).fill(Theme.fill(tone))
-            )
-    }
-}
-
 /// White card with a hairline border. `edge` draws the coloured top edge from the Board design.
 struct CardBackground: ViewModifier {
     var edge: Tone?

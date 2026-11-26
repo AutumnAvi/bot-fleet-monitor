@@ -186,7 +186,7 @@ struct FeedView: View {
                 ForEach(FeedSection.group(items, now: d.now)) { section in
                     SectionLabel(text: section.title).padding(.leading, 54).padding(.top, 4).padding(.bottom, 8)
                     ForEach(Array(section.items.enumerated()), id: \.element.seq) { index, item in
-                        FeedTimelineRow(item: item, now: d.now, connects: index < section.items.count - 1)
+                        FeedTimelineRow(item: item, avatar: d.row(item.botKey)?.bot.avatar, now: d.now, connects: index < section.items.count - 1)
                     }
                 }
                 Text(verbatim: "Latest \(items.count) update\(items.count == 1 ? "" : "s") · bots push these")
@@ -321,13 +321,13 @@ private struct FeedSection: Identifiable {
     }
 }
 
-/// Dot and name of a working bot: blue for Avi's Work, green for Admin.
+/// Symbol and name of a working bot.
 private struct FeedWorkingLabel: View {
     let row: BotRow
 
     var body: some View {
-        HStack(spacing: 8) {
-            Dot(tone: row.account == .work ? .blue : .green)
+        HStack(spacing: 7) {
+            BotSymbol(bot: row.bot, size: 14)
             Text(row.bot.name).font(Theme.F.bodyBold).foregroundStyle(Theme.text).lineLimit(1)
         }
     }
@@ -355,7 +355,10 @@ private struct FeedAttentionCard: View {
                 }
             }
             Button(action: onFocus) {
-                Text(row.bot.name).font(Theme.F.bodyBold).foregroundStyle(Theme.text).lineLimit(1)
+                HStack(spacing: 6) {
+                    BotSymbol(bot: row.bot)
+                    Text(row.bot.name).font(Theme.F.bodyBold).foregroundStyle(Theme.text).lineLimit(1)
+                }
             }
             .buttonStyle(PlainRowButtonStyle())
             .help("Show \(row.bot.name) in Focus")
@@ -400,6 +403,8 @@ private struct FeedSavedStrip: View {
 /// One timeline entry: a round avatar on the connector line, then a card with the update.
 private struct FeedTimelineRow: View {
     let item: ActivityItem
+    /// The bot's Grok Bot look, when the roster has it.
+    let avatar: BotAvatar?
     let now: Double
     /// Draw the line down to the next avatar in the same section.
     let connects: Bool
@@ -407,7 +412,7 @@ private struct FeedTimelineRow: View {
     var body: some View {
         let tone = Rules.activityTone(kind: item.kind)
         HStack(alignment: .top, spacing: 14) {
-            Avatar(name: item.botName, tone: tone, size: 40, circle: true)
+            BotSymbol(id: item.botId, name: item.botName, avatar: avatar, size: 40, tile: true)
             VStack(alignment: .leading, spacing: 5) {
                 HStack(spacing: 6) {
                     Text(item.botName).font(Theme.F.bodyBold).foregroundStyle(Theme.text).lineLimit(1)

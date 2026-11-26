@@ -147,7 +147,10 @@ struct FocusView: View {
     /// One queued bot: one line when it fits, else two (always two in narrow windows).
     /// Tapping the row outside the button puts that bot on the card.
     private func upNextRow(_ row: BotRow, number: Int) -> some View {
-        let name = Text(row.bot.name).font(Theme.F.bodyBold).foregroundStyle(Theme.text).lineLimit(1)
+        let name = HStack(spacing: 7) {
+            BotSymbol(bot: row.bot)
+            Text(row.bot.name).font(Theme.F.bodyBold).foregroundStyle(Theme.text).lineLimit(1)
+        }
         let step = Text(row.step).font(Theme.F.body).foregroundStyle(Theme.text2).lineLimit(1)
         let numberLabel = Text("\(number)").font(Theme.F.small).foregroundStyle(Theme.text3).monospacedDigit()
             .frame(minWidth: 16, alignment: .leading)
@@ -205,6 +208,7 @@ struct FocusView: View {
                 ForEach(d.saved, id: \.key) { row in
                     HStack(spacing: 10) {
                         Image(systemName: "bookmark.fill").font(.system(size: 12)).foregroundStyle(Theme.fg(.violet))
+                        BotSymbol(bot: row.bot)
                         Text(row.bot.name).font(Theme.F.bodyBold).foregroundStyle(Theme.text).lineLimit(1).layoutPriority(1)
                         if !narrow {
                             Text(row.step).font(Theme.F.body).foregroundStyle(Theme.text2).lineLimit(1)
@@ -305,7 +309,7 @@ struct FocusView: View {
 
     private func workingLine(_ row: BotRow) -> some View {
         HStack(spacing: 8) {
-            Dot(tone: .blue)
+            BotSymbol(bot: row.bot, size: 14)
             Text(row.bot.name).font(Theme.F.bodyBold).foregroundStyle(Theme.text).lineLimit(1).layoutPriority(1)
             Text(row.step).font(Theme.F.body).foregroundStyle(Theme.text2).lineLimit(1)
             Spacer(minLength: 6)
