@@ -42,7 +42,7 @@ struct FleetWindow: View {
                 if let problem = model.problem {
                     StatusBanner(model: model, problem: problem)
                 }
-                if let banner = MonitorRules.banner(MonitorRules.accounts(state), now: model.now) {
+                if let banner = MonitorRules.banner(MonitorRules.accounts(state, now: model.now), now: model.now) {
                     SwitchBannerView(banner: banner)
                 }
                 if model.tab == .monitor {

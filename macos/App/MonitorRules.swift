@@ -113,11 +113,10 @@ enum MonitorRules {
 
     /// Main Claude, Admin Claude, Cursor, Codex, Grok · Work, then Grok · Admin once it has been
     /// pushed. API pools are not on this strip. Accounts that never reported are left out.
-    /// A window whose reset time has passed counts as reset (0%), so a reading from before the
-    /// reset never says Switch now.
-    static func accounts(_ state: FleetState) -> [AccountCard] {
+    /// A window whose reset time has passed (by the app's clock, which keeps moving while Fleet is
+    /// offline) counts as reset (0%), so a reading from before the reset never says Switch now.
+    static func accounts(_ state: FleetState, now: Double) -> [AccountCard] {
         var cards: [AccountCard] = []
-        let now = state.now
         let byId = Dictionary(state.accounts.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
         if let a = byId["claudeMax"] { cards.append(windowed(a, kind: .mainClaude, name: "Main Claude", now: now)) }
         if let a = byId["claudeAdmin"] { cards.append(windowed(a, kind: .adminClaude, name: "Admin Claude", now: now)) }
@@ -143,7 +142,7 @@ enum MonitorRules {
         let hot = cards.filter { $0.signal == .switchNow }
         if hot.isEmpty { return nil }
         let target = cards.first { $0.useFirst && $0.canTakeWork }?.name
-        let full = cards.filter(\.canTakeWork).map(\.name)
+        let full = cards.filter { $0.canTakeWork && $0.signal == .switchNow }.map(\.name)
         let advice = target.map { "Use \($0)" } ?? (full.isEmpty ? "" : "No room on \(full.joined(separator: " or "))")
         return SwitchBanner(hot: hot.map { hotText($0, now: now) }, advice: advice, target: target)
     }
@@ -154,7 +153,7 @@ enum MonitorRules {
         var parts = [card.name]
         let label = meter.label == "used" ? "" : "\(meter.label) "
         parts.append("\(label)\(pct(meter.used ?? 0))")
-        if let reset = meter.resetAt ?? card.resetAt { parts.append("resets \(resetText(reset, now: now))") }
+        if let reset = meter.resetAt { parts.append("resets \(resetText(reset, now: now))") }
         return parts.joined(separator: " · ")
     }
 
@@ -250,9 +249,15 @@ enum MonitorRules {
             && (Sessions.isActive(s) || now - s.startedAt < recentWindowMs)
     }
 
-    /// "5h 32m": start to now while active, else start to when it ended.
+    /// "5h 32m": start to now while it runs, to its last sign of life once stalled, else to when it ended.
     static func runtime(_ s: CodingSession, now: Double) -> String {
-        Fmt.hoursMinutes((Sessions.isActive(s) ? now : endedAt(s)) - s.startedAt)
+        let end: Double
+        switch Sessions.displayStatus(s) {
+        case "stalled": end = activityAt(s)
+        case _ where Sessions.isActive(s): end = now
+        default: end = endedAt(s)
+        }
+        return Fmt.hoursMinutes(end - s.startedAt)
     }
 
     /// Coding sessions that are active or ended in the last 24 hours. Active first, then the most
@@ -331,7 +336,7 @@ enum MonitorRules {
             let held = mine.filter { Sessions.isActive($0) && !Sessions.isLive($0) }.max { activityAt($0) < activityAt($1) }
             let sessionNewer = (sessionAt ?? 0) > (own ?? 0)
             var line = ownLine(row, d: d)
-            if !needsYou, let session = live ?? (sessionNewer ? latestSession : nil) {
+            if !needsYou, let session = live ?? held ?? (sessionNewer ? latestSession : nil) {
                 line = Sessions.cleanTitle(session.title)
             }
             let (status, tone) = statusLabel(row, needsYou: needsYou, live: live != nil, held: held,
@@ -354,7 +359,8 @@ enum MonitorRules {
     }
 
     /// Needs you, Stuck or Stale; else Live, a held session's status (Paused · limit, Stalled),
-    /// Saved, the newer ended session's status (Finished, Failed, Stopped), or Idle.
+    /// Saved, the status of an ended session newer than the bot's own report (Finished, Failed,
+    /// Stopped), Live for a bot reporting working, or Idle.
     private static func statusLabel(_ row: BotRow, needsYou: Bool, live: Bool, held: CodingSession?,
                                     ended: CodingSession?) -> (String, Tone) {
         if needsYou {
@@ -366,9 +372,9 @@ enum MonitorRules {
         }
         if live { return ("Live", .green) }
         if let held { return (Sessions.statusLabel(held), sessionTone(held)) }
-        if row.state == .working && row.bot.savedAt == nil { return ("Live", .green) }
         if row.bot.savedAt != nil { return ("Saved", .violet) }
         if let ended { return (Sessions.statusLabel(ended), sessionTone(ended)) }
+        if row.state == .working { return ("Live", .green) }
         return ("Idle", .gray)
     }
 }

@@ -129,7 +129,7 @@ enum Snapshot {
 
     /// What the Monitor view shows: tiles and signals, the banner, sessions, recently used.
     private static func reportMonitor(_ state: FleetState, d: FleetDerived) {
-        let cards = MonitorRules.accounts(state)
+        let cards = MonitorRules.accounts(state, now: d.now)
         for card in cards {
             let numbers = card.meters.map { m -> String in
                 let value = m.noLimit ? "no limit" : m.used.map(MonitorRules.pct) ?? "–"

@@ -15,7 +15,7 @@ struct MonitorView: View {
     private var pad: CGFloat { narrow ? 12 : 18 }
 
     var body: some View {
-        let cards = MonitorRules.accounts(state)
+        let cards = MonitorRules.accounts(state, now: d.now)
         let sessions = MonitorRules.sessions(d)
         let bots = MonitorRules.recentBots(d)
         if narrow {
