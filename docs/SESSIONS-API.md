@@ -215,7 +215,8 @@ valid `avatar` keeps the stored one. There is no way to clear it, and nothing el
 `report.sh` sends it on `status` reports when `BOT_FLEET_AVATAR="blob:black"` is set.
 
 **Avatar-only report.** A status body with only `botId` and a valid `avatar` (no `status`,
-`step`, `name` or `group`: `{"botId":"…","avatar":{…}}`) sets the symbol and nothing else: no status change, no
+`step`, `name` or `group`: `{"botId":"…","avatar":{…}}`; the optional `account` every report
+may carry is still allowed and must match the key) sets the symbol and nothing else: no status change, no
 feed event, no change to Save for later, and it does not count as a sign of life for the stale
 timer. It still needs the account's key and an existing bot (`404` otherwise), and it uses the
 normal report rate limits. Without a valid avatar, or with any of those fields, it is a normal

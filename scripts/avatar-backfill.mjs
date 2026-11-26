@@ -16,12 +16,13 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { backfillPlan, rosterFor } from "./lib/avatar.mjs";
-import { argValue, loadRoster, postJson, readKeyFile, workerUrl } from "./lib/push.mjs";
+import { argValue, loadRoster, postJson, readKeyFile, rejectUnknownFlags, workerUrl } from "./lib/push.mjs";
 
 const SEED = fileURLToPath(new URL("../docs/roster-seed.json", import.meta.url));
 const DEFAULT_AGENTS_DIR = "/home/box/agent-data/agents";
 
 async function main(argv) {
+  rejectUnknownFlags(argv, ["--send", "--account", "--roster", "--agents-dir"]);
   const send = argv.includes("--send");
   const account = argValue(argv, "--account") ?? "work";
   if (account !== "work" && account !== "leaf") throw new Error("--account must be work or leaf");

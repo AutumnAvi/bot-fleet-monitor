@@ -59,6 +59,17 @@ export async function loadRoster(seedPath, extraPath) {
   return bots;
 }
 
+/**
+ * Refuses any "--" argument that is not exactly a known flag (so "--dry-run=1" or
+ * "--roster=x.json" fail loudly instead of being ignored and sending).
+ */
+export function rejectUnknownFlags(argv, known) {
+  const bad = argv.find((a) => a.startsWith("--") && !known.includes(a));
+  if (bad === undefined) return;
+  const shown = bad.includes("=") ? `${bad.split("=")[0]}=…` : bad;
+  throw new Error(`unknown option ${shown} (flags take their value after a space)`);
+}
+
 /** Minimal --flag / --flag value parser. */
 export function argValue(argv, name) {
   const i = argv.indexOf(name);

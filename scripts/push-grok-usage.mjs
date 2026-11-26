@@ -19,11 +19,12 @@
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { SnapshotError, buildGrokUsage } from "./lib/grok-usage.mjs";
-import { argValue, loadRoster, postJson, readKeyFile, workerUrl } from "./lib/push.mjs";
+import { argValue, loadRoster, postJson, readKeyFile, rejectUnknownFlags, workerUrl } from "./lib/push.mjs";
 
 const SEED = fileURLToPath(new URL("../docs/roster-seed.json", import.meta.url));
 
 async function main(argv) {
+  rejectUnknownFlags(argv, ["--dry-run", "--roster"]);
   const dryRun = argv.includes("--dry-run");
   const rosterPath = argValue(argv, "--roster");
   const snapshotPath = argv.find((arg, i) => !arg.startsWith("--") && argv[i - 1] !== "--roster");
