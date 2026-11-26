@@ -95,16 +95,26 @@ enum Rules {
         }
     }
 
+    /// Display text without a leftover "[TEST] " prefix (some bots still send one).
+    static func clean(_ text: String) -> String {
+        var out = text.trimmingCharacters(in: .whitespaces)
+        while let range = out.range(of: #"^\[test\]\s*"#, options: [.regularExpression, .caseInsensitive]) {
+            out.removeSubrange(range)
+        }
+        return out
+    }
+
     static func stepText(_ bot: Bot, state: DisplayState, now: Double) -> String {
+        let step = bot.step.map(clean).flatMap { $0.isEmpty ? nil : $0 }
         switch state {
         case .unknown: return "No status yet"
         case .stale:
             let silent = "No update for \(Fmt.duration(now - (lastSeenAt(bot) ?? now)))"
-            return bot.step.map { "\(silent) · \($0)" } ?? silent
-        case .idle: return bot.step ?? "Idle"
-        case .working: return bot.step ?? "Working"
-        case .waitingUser: return bot.step ?? "Waiting on you"
-        case .error: return bot.step ?? "Stuck"
+            return step.map { "\(silent) · \($0)" } ?? silent
+        case .idle: return step ?? "Idle"
+        case .working: return step ?? "Working"
+        case .waitingUser: return step ?? "Waiting on you"
+        case .error: return step ?? "Stuck"
         }
     }
 
@@ -158,7 +168,9 @@ enum Rules {
     /// What comes after the label: the step, or the message text quoted. Never a prefix.
     static func activityDetail(kind: String, detail: String?) -> String? {
         guard let detail, !detail.isEmpty, kind != "summary" else { return nil }
-        return kind == "message" ? "“\(detail)”" : detail
+        let text = clean(detail)
+        guard !text.isEmpty else { return nil }
+        return kind == "message" ? "“\(text)”" : text
     }
 
     /// Activity as lists show it, newest first in and out (fleet-view.ts `visibleActivity`).
@@ -296,4 +308,14 @@ enum Fmt {
     }
 
     static func percent(_ value: Double) -> String { "\(Int(value.rounded()))%" }
+
+    /// "5h 32m", "31m", "1d 3h", or "<1m".
+    static func hoursMinutes(_ ms: Double) -> String {
+        let minutes = Int((max(0, ms) / 60_000).rounded(.down))
+        if minutes < 1 { return "<1m" }
+        if minutes < 60 { return "\(minutes)m" }
+        let hours = minutes / 60
+        if hours < 24 { return minutes % 60 == 0 ? "\(hours)h" : "\(hours)h \(minutes % 60)m" }
+        return hours % 24 == 0 ? "\(hours / 24)d" : "\(hours / 24)d \(hours % 24)h"
+    }
 }

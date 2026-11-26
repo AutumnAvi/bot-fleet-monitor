@@ -64,9 +64,14 @@ struct SaveToast: Equatable {
     var isError = false
 }
 
+/// Monitor is the main view. Board, Feed and Later are secondary; Focus opens from a bot that needs
+/// Avi (a Recently used row, the menu bar, Board or Feed).
 enum DashboardTab: String, CaseIterable, Hashable {
-    case focus, board, feed
+    case monitor, focus, board, feed, later
     var title: String { rawValue.capitalized }
+
+    /// The quieter items after Monitor in the top bar, on ⌘2, ⌘3 and ⌘4.
+    static let secondary: [DashboardTab] = [.board, .feed, .later]
 }
 
 /// Reads GET /api/v1/state with the read key every 20 seconds (URLSession only, no web view),
@@ -86,9 +91,8 @@ final class FleetModel: ObservableObject {
     @Published var showSettings = false
     /// Last HTTP status from /api/v1/state. 404 means the server is not v2 yet.
     @Published var httpStatus: Int?
-    @Published var tab: DashboardTab {
-        didSet { UserDefaults.standard.set(tab.rawValue, forKey: "botfleet.tab") }
-    }
+    /// Opens on Monitor every launch.
+    @Published var tab: DashboardTab = .monitor
     @Published var filter: AccountFilter {
         didSet {
             UserDefaults.standard.set(filter.rawValue, forKey: "botfleet.filter")
@@ -140,7 +144,6 @@ final class FleetModel: ObservableObject {
     init() {
         configured = BaseURL.saved != nil && KeychainStore.load() != nil
         canSave = ControlKey.load() != nil
-        tab = DashboardTab(rawValue: UserDefaults.standard.string(forKey: "botfleet.tab") ?? "") ?? .focus
         filter = AccountFilter(rawValue: UserDefaults.standard.string(forKey: "botfleet.filter") ?? "") ?? .all
         let center = NSWorkspace.shared.notificationCenter
         observers.append(center.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in

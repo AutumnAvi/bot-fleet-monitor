@@ -5,7 +5,7 @@ Bot Fleet window forward. The menu bar shows how many bots need Avi and a short 
 It does not message or wake a bot. Its only write is Save for later (below).
 
 The window is native SwiftUI. It reads `GET /api/v1/state` with `URLSession` every 20 seconds
-and draws Focus, Board and Feed itself. There is no web view, so a Screen Time web filter that
+and draws Monitor (the main view), Focus, Board, Feed and Later itself. There is no web view, so a Screen Time web filter that
 blocks `*.workers.dev` in Safari and WebKit does not affect it (the same approach as Session
 Monitor). It needs only the dashboard URL and the read key, never the dashboard password.
 
@@ -36,7 +36,33 @@ also attached to the GitHub Release.
 
 ## What the window shows
 
-- **Usage bars** sit on top of every tab. Grok first: **Grok · Avi's Work 41%** and
+**Monitor** is the main view and opens on every launch. Top to bottom:
+
+- **Accounts**: Main Claude, Admin Claude, Cursor (Models and Other), Codex and Grok · Work, each
+  with its usage, a chip and its next reset. **Near limit** at 80% or more; **Switch now** at 90% or
+  more, or an exhausted 5-hour window; otherwise **OK**. **Use first** sits on Main Claude while it
+  has room, or on Cursor when Main Claude needs a switch and Cursor has room; never on Admin Claude
+  or Codex. Grok · Admin appears once it has been pushed. API pools are not on this strip (they stay
+  in the usage bars on the other tabs).
+- When any account is at Switch now, a slim red banner under the top bar names it and says where to
+  go: Main Claude, else Cursor. It never sends you to Admin Claude or Codex.
+- **Coding sessions**: T3, Claude and Cursor sessions that are live or ended in the last 24 hours,
+  each with the bot that started it, its status, account and run time. Live is green; finished is
+  grey.
+- **Recently used**: bots by last activity (the later of the bot's own reports and any coding
+  session it owns), with its symbol, name, one line and status. A dot on the symbol means it needs
+  you; those rows are not pinned to the top. Click one to open it in Focus. Right-click for Open
+  chat. Bots quiet for a week drop off unless they need you.
+
+A wide window shows sessions and recently used side by side; under 900 points wide it is one
+column. Leftover `[TEST]` prefixes on bot steps and summaries are not shown, and session titles
+drop their `[Bot]` tag and trailing date.
+
+**Board**, **Feed** and **Later** are quieter items after Monitor in the top bar (⌘2, ⌘3, ⌘4;
+Monitor is ⌘1). Focus opens from a bot that needs you (Recently used, the menu bar, Board or Feed).
+On those tabs:
+
+- **Usage bars** sit on top. Grok first: **Grok · Avi's Work 41%** and
   **Grok · Admin 12%**, each with "as of <time>" (when the numbers were read). Hover a Grok bar for
   the per-bot breakdown. A bar with nothing pushed yet says "no data yet". Claude, Cursor, Codex
   and API pools appear in a second row once they have data.
@@ -53,6 +79,7 @@ also attached to the GitHub Release.
   whichever Grok Bot account is signed in. Press **N** for the next bot. Up next, Save for later
   and every other bot by account follow.
 - **Board**: Kanban columns Needs me, Working, Saved for later and Idle & done.
+- **Later**: every bot in Save for later, with Move back.
 - **Feed**: the latest bot updates, with Needs me / Avi's Work / Admin filters. Summary updates
   are not listed (the latest one is the bot's one line), and back-to-back repeats from the same
   bot show once. Labels are short: Working, Needs you, Stuck, Idle, Done, Sent you, You replied,
@@ -86,7 +113,7 @@ successful read is a baseline and does not notify. Allow notifications when macO
 
 The window opens at 1440×900. The Window size menu has Wide and short (1920×700) and Tall and
 narrow (600×1400): wide windows use three columns, narrow ones a single column. You can also
-drag it to any size. ⌘1, ⌘2 and ⌘3 switch tabs.
+drag it to any size. ⌘1 is Monitor; ⌘2, ⌘3 and ⌘4 are Board, Feed and Later.
 
 Quit from the menu-bar item or the Dock. Clicking the Dock icon again brings the window back.
 
@@ -117,7 +144,9 @@ APP=build/Build/Products/Release/BotFleet.app/Contents/MacOS/BotFleet
 "$APP" --snapshot ci/sample-state.json board.png tab=board width=600 height=1400 dark
 ```
 
-Options: `tab=focus|board|feed`, `width=`, `height=`, `dark`, `filter=all|work|leaf`,
+Options: `tab=monitor|focus|board|feed|later` (default monitor), `width=`, `height=`, `dark`, `filter=all|work|leaf`,
 `state=offline`, `part=grok` (the Grok breakdown popover), `nodata` (no usage or sessions
-pushed yet), `toast=saved` (Later pressed on the first bot, no network). It reads only the file
+pushed yet), `toast=saved` (Later pressed on the first bot, no network), `usage=switch` (example
+numbers: Main Claude 5-hour 96%, Cursor Models 81%, Grok · Work 88%, so the switch banner shows;
+the picture is stamped FIXTURE). It reads only the file
 you pass.

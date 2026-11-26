@@ -205,21 +205,7 @@ struct FocusView: View {
             VStack(alignment: .leading, spacing: 8) {
                 SectionLabel(text: "Saved for later · \(d.saved.count)")
                 ForEach(d.saved, id: \.key) { row in
-                    HStack(spacing: 10) {
-                        Image(systemName: "bookmark.fill").font(.system(size: 12)).foregroundStyle(Theme.fg(.violet))
-                        BotSymbol(bot: row.bot)
-                        Text(row.bot.name).font(Theme.F.bodyBold).foregroundStyle(Theme.text).lineLimit(1).layoutPriority(1)
-                        if !narrow {
-                            Text(row.step).font(Theme.F.body).foregroundStyle(Theme.text2).lineLimit(1)
-                        }
-                        Spacer(minLength: 8)
-                        AccountTag(account: row.account)
-                        Pill(text: row.bot.savedAt.map { "Saved \(Fmt.clockOrDate($0, now: d.now))" } ?? "Saved", tone: .violet)
-                        SaveForLaterButton(model: model, bot: row.bot)
-                    }
-                    .padding(.horizontal, 14)
-                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-                    .card(fill: Theme.tint(.violet).opacity(0.35), dashed: true)
+                    SavedRow(model: model, row: row, now: d.now, narrow: narrow)
                 }
             }
         }

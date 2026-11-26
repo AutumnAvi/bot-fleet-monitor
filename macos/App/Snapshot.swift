@@ -2,8 +2,8 @@ import AppKit
 import SwiftUI
 
 /// CI preview, same idea as Session Monitor's:
-/// `<app> --snapshot state.json out.png [tab=focus|board|feed] [width=1440] [height=900] [dark]
-///  [state=offline] [filter=all|work|leaf] [part=grok] [nodata] [toast=saved]`
+/// `<app> --snapshot state.json out.png [tab=monitor|focus|board|feed|later] [width=1440] [height=900]
+///  [dark] [state=offline] [filter=all|work|leaf] [part=grok] [nodata] [toast=saved] [usage=switch]`
 /// renders the real window from a saved GET /api/v1/state reply, prints what it decoded, and exits.
 /// The clock is frozen at the sample's `now`, so ages are the same on every run. No network.
 @MainActor
@@ -31,7 +31,11 @@ enum Snapshot {
             state.accounts = []
             state.sessions = []
         }
-        let tab = DashboardTab(rawValue: option("tab") ?? "") ?? .focus
+        // `usage=switch`: example afternoon numbers (Main Claude 5-hour 96%, Cursor Models 81%,
+        // Grok · Work 88%) so the switch banner can be seen. The picture is labelled FIXTURE.
+        let fixture = option("usage") == "switch"
+        if fixture { applySwitchFixture(&state) }
+        let tab = DashboardTab(rawValue: option("tab") ?? "") ?? .monitor
         let filter = AccountFilter(rawValue: option("filter") ?? "") ?? .all
         let problem: FetchProblem? = option("state") == "offline" ? .offline("Can't reach the dashboard URL.") : nil
         let model = FleetModel(preview: state, tab: tab, filter: filter, problem: problem)
@@ -58,7 +62,9 @@ enum Snapshot {
             size = hosting.fittingSize
             host = hosting
         } else {
-            host = NSHostingView(rootView: DashboardView(model: model))
+            host = NSHostingView(rootView: DashboardView(model: model).overlay(alignment: .bottomLeading) {
+                if fixture { FixtureLabel() }
+            })
         }
         host.appearance = NSAppearance(named: options.contains("dark") ? .darkAqua : .aqua)
         let window = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.borderless],
@@ -118,5 +124,62 @@ enum Snapshot {
         for grok in state.grok {
             print("GROK \(grok.account.label) | \(Int(grok.pctUsed.rounded()))% used | \(grok.bots.count) bots")
         }
+        reportMonitor(state, d: d)
+    }
+
+    /// What the Monitor view shows: tiles and signals, the banner, sessions, recently used.
+    private static func reportMonitor(_ state: FleetState, d: FleetDerived) {
+        let cards = MonitorRules.accounts(state, now: d.now)
+        for card in cards {
+            let numbers = card.meters.map { m -> String in
+                let value = m.noLimit ? "no limit" : m.used.map(MonitorRules.pct) ?? "–"
+                return "\(m.label) \(value)"
+            }
+            let reset = card.resetAt.map { MonitorRules.resetText($0, now: d.now) } ?? "-"
+            print("ACCOUNT \(card.name) | \(numbers.joined(separator: ", ")) | \(card.signal.label) | resets \(reset)\(card.useFirst ? " | Use first" : "")")
+        }
+        print("ACCOUNTS \(MonitorRules.headerText(cards))")
+        print("BANNER \(MonitorRules.banner(cards, now: d.now)?.text ?? "none")")
+        let sessions = MonitorRules.sessions(d)
+        print("MONITOR sessions=\(sessions.count) live=\(sessions.filter(Sessions.isLive).count)")
+        for s in sessions {
+            let runtime = MonitorRules.runtime(s, now: d.now)
+            print("MSESSION \(Sessions.toolLabel(s)) | \(Sessions.title(s, helpers: false)) | \(Sessions.statusLabel(s)) | \(MonitorRules.shortName(d.ownerName(of: s))) | \(MonitorRules.poolName(s)) | \(runtime)")
+        }
+        for bot in MonitorRules.recentBots(d) {
+            print("RECENT \(MonitorRules.shortName(bot.row.bot.name)) | \(bot.status)\(bot.needsYou ? " | needs you" : "") | \(Fmt.age(bot.lastAt, now: d.now)) | \(bot.line)")
+        }
+    }
+
+    /// Example usage for the switch banner fixture. Never used outside `--snapshot`.
+    private static func applySwitchFixture(_ state: inout FleetState) {
+        let now = state.now
+        for i in state.accounts.indices {
+            for j in state.accounts[i].meters.indices {
+                let meter = state.accounts[i].meters[j]
+                if state.accounts[i].id == "claudeMax" && Usage.isFiveHour(meter) {
+                    state.accounts[i].meters[j].pctUsed = 96
+                    state.accounts[i].meters[j].state = "ok"
+                    state.accounts[i].meters[j].resetAt = now + 5 * 60 * 60 * 1000
+                }
+                if state.accounts[i].id == "cursor" && meter.id == "cursor-models" {
+                    state.accounts[i].meters[j].pctUsed = 81
+                }
+            }
+        }
+        for i in state.grok.indices where state.grok[i].account == .work {
+            state.grok[i].pctUsed = 88
+        }
+    }
+}
+
+/// Stamped on fixture snapshots so example numbers are never mistaken for live ones.
+private struct FixtureLabel: View {
+    var body: some View {
+        Text("FIXTURE · example usage, not live numbers")
+            .font(.system(size: 12, weight: .bold)).foregroundStyle(.black)
+            .padding(.horizontal, 10).padding(.vertical, 5)
+            .background(RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0xFACC15)))
+            .padding(12)
     }
 }

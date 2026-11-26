@@ -27,6 +27,61 @@ struct SaveForLaterButton: View {
     }
 }
 
+/// One saved bot: symbol, name, step, account, when it was saved, and Move back.
+struct SavedRow: View {
+    @ObservedObject var model: FleetModel
+    let row: BotRow
+    let now: Double
+    var narrow = false
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "bookmark.fill").font(.system(size: 12)).foregroundStyle(Theme.fg(.violet))
+            BotSymbol(bot: row.bot)
+            Text(row.bot.name).font(Theme.F.bodyBold).foregroundStyle(Theme.text).lineLimit(1).layoutPriority(1)
+            if !narrow {
+                Text(row.step).font(Theme.F.body).foregroundStyle(Theme.text2).lineLimit(1)
+            }
+            Spacer(minLength: 8)
+            AccountTag(account: row.account)
+            Pill(text: row.bot.savedAt.map { "Saved \(Fmt.clockOrDate($0, now: now))" } ?? "Saved", tone: .violet)
+            SaveForLaterButton(model: model, bot: row.bot)
+        }
+        .padding(.horizontal, 14)
+        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+        .card(fill: Theme.tint(.violet).opacity(0.35), dashed: true)
+    }
+}
+
+/// The Later tab: every bot in Save for later, most recently saved first.
+struct LaterView: View {
+    @ObservedObject var model: FleetModel
+    let d: FleetDerived
+    @Environment(\.widthClass) private var width
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 8) {
+                SectionLabel(text: "Saved for later · \(d.saved.count)")
+                if d.saved.isEmpty {
+                    Text("Nothing saved for later.").font(Theme.F.body).foregroundStyle(Theme.text3)
+                        .padding(.vertical, 6)
+                }
+                ForEach(d.saved, id: \.key) { row in
+                    SavedRow(model: model, row: row, now: d.now, narrow: width == .narrow)
+                }
+                if !model.canSave {
+                    Text("Add the control key in Settings to save bots or move them back.")
+                        .font(Theme.F.small).foregroundStyle(Theme.text3).padding(.top, 4)
+                }
+            }
+            .frame(maxWidth: 980, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(width == .narrow ? 14 : 20)
+        }
+    }
+}
+
 /// Dark pill at the bottom of the window: "Saved for later · Undo", or why a change failed.
 struct SaveToastView: View {
     @ObservedObject var model: FleetModel
