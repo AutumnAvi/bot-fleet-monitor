@@ -193,11 +193,22 @@ private struct AccountTile: View {
                 }
             } else {
                 VStack(alignment: .leading, spacing: 3) {
-                    HStack(spacing: 6) {
-                        title
-                        useFirst
-                        Spacer(minLength: 4)
-                        SignalChip(signal: card.signal)
+                    // Use first drops under the name when the tile is too narrow for both.
+                    ViewThatFits(in: .horizontal) {
+                        HStack(spacing: 6) {
+                            title.fixedSize()
+                            useFirst
+                            Spacer(minLength: 4)
+                            SignalChip(signal: card.signal)
+                        }
+                        VStack(alignment: .leading, spacing: 3) {
+                            HStack(spacing: 6) {
+                                title
+                                Spacer(minLength: 4)
+                                SignalChip(signal: card.signal)
+                            }
+                            useFirst
+                        }
                     }
                     numbers
                     details
@@ -342,9 +353,9 @@ private struct MonitorSessionRow: View {
     private var content: some View {
         let tone = MonitorRules.sessionTone(session)
         return HStack(spacing: 10) {
-            ToolBadge(session: session).opacity(active ? 1 : 0.55).frame(minWidth: 30, alignment: .leading)
+            ToolBadge(session: session).opacity(active ? 1 : 0.55).frame(minWidth: 30, alignment: .leading).fixedSize()
             VStack(alignment: .leading, spacing: 1) {
-                Text(Sessions.title(session)).font(active ? Theme.F.bodyBold : Theme.F.body)
+                Text(Sessions.title(session, helpers: false)).font(active ? Theme.F.bodyBold : Theme.F.body)
                     .foregroundStyle(active ? Theme.text : Theme.text2).lineLimit(1).truncationMode(.tail)
                 (Text("started by ").foregroundStyle(Theme.text3)
                  + Text(owner).fontWeight(.medium).foregroundStyle(active ? Theme.text2 : Theme.text3))

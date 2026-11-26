@@ -228,12 +228,12 @@ enum Sessions {
     }
 
     /// Title plus "(cloud)" and the helper count, as on the web.
-    static func title(_ s: CodingSession) -> String {
+    static func title(_ s: CodingSession, helpers showHelpers: Bool = true) -> String {
         let name = cleanTitle(s.title)
         let isCloud = s.tool == "cursor-cloud" || s.account == "cursor-cloud"
         let cloud = isCloud && name.range(of: "cloud", options: .caseInsensitive) == nil ? " (cloud)" : ""
         let n = s.helperList.count
-        let helpers = n > 0 ? " · \(n) helper\(n == 1 ? "" : "s")" : ""
+        let helpers = showHelpers && n > 0 ? " · \(n) helper\(n == 1 ? "" : "s")" : ""
         return name + cloud + helpers
     }
 
