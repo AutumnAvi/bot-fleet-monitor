@@ -92,6 +92,8 @@ private struct GrokBar: View {
                             if !inside { closeSoon() }
                         }
                 }
+                // Escape or a focus change closes it without a hover-out.
+                .onChange(of: show) { _, open in if !open { overPopover = false } }
                 .accessibilityAddTraits(.isButton)
                 .accessibilityHint("Shows the per-bot breakdown")
         } else {

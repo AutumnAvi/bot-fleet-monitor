@@ -100,10 +100,19 @@ final class FleetModel: ObservableObject {
     @Published var focusKey: String?
     /// The Save for later toast, cleared after about 6 seconds.
     @Published var toast: SaveToast?
-    /// Changes sent but not yet answered (`account:id` → saved, token). Re-applied to every read
-    /// until Fleet answers, so a poll in between never flips the bot back.
-    private var pendingSaved: [String: (saved: Bool, token: Int)] = [:]
+    /// Changes sent but not yet answered, per `account:id`. Re-applied to every read until Fleet
+    /// answers, so a poll in between never flips the bot back.
+    private struct PendingSave {
+        var saved: Bool
+        /// The newest change for this bot; only its answer settles the bot.
+        var token: Int
+        /// The last `savedAt` Fleet confirmed, which a failure goes back to.
+        var confirmed: Double?
+    }
+    private var pendingSaved: [String: PendingSave] = [:]
     private var saveToken = 0
+    /// Bumped when the server or control key changes, so queued sends for the old one are dropped.
+    private var saveEpoch = 0
     /// Sends run one after another, so Undo never overtakes the change it undoes.
     private var saveChain: Task<Void, Never>?
     /// Ticks with every poll so ages and the header clock move even when nothing changed.
@@ -277,8 +286,11 @@ final class FleetModel: ObservableObject {
     /// read back. On an error the bot goes back to where it was and the toast says why.
     func setSaved(_ bot: Bot, saved: Bool, offerUndo: Bool = true) {
         guard canSave, var current = state else { return }
-        let before = current.bots.first { $0.key == bot.key }?.savedAt
-        current.applySaved(key: bot.key, savedAt: saved ? now : nil)
+        let shown = current.bots.first { $0.key == bot.key }?.savedAt
+        // While an earlier change is unanswered, what Fleet confirmed is older than what is shown.
+        let confirmed: Double? = pendingSaved[bot.key].map { $0.confirmed } ?? shown
+        let at: Double? = saved ? now : nil
+        current.applySaved(key: bot.key, savedAt: at)
         // A read already in flight predates this change; drop its reply.
         generation += 1
         state = current
@@ -286,26 +298,52 @@ final class FleetModel: ObservableObject {
         if !saved { seen.insert(bot.key) }
         saveToken += 1
         let token = saveToken
-        pendingSaved[bot.key] = (saved, token)
+        pendingSaved[bot.key] = PendingSave(saved: saved, token: token, confirmed: confirmed)
         show(SaveToast(text: saved ? "Saved for later" : "Moved back", undo: offerUndo ? bot : nil, undoSaved: !saved))
         guard fixedNow == nil else { return }
+        let epoch = saveEpoch
         let previous = saveChain
         saveChain = Task { [weak self] in
             await previous?.value
-            guard let self else { return }
+            guard let self, self.saveEpoch == epoch, !Task.isCancelled else { return }
             let failure = await self.sendSaved(account: bot.account, botId: bot.id, saved: saved)
-            let latest = self.pendingSaved[bot.key]?.token == token
-            if latest { self.pendingSaved[bot.key] = nil }
+            // The server or key changed meanwhile: this answer belongs to the old one.
+            guard self.saveEpoch == epoch else { return }
+            guard let entry = self.pendingSaved[bot.key] else { return }
+            guard entry.token == token else {
+                // A newer change for this bot is queued; it settles the bot. Only remember what landed.
+                if failure == nil { self.pendingSaved[bot.key]?.confirmed = at }
+                return
+            }
+            self.pendingSaved[bot.key] = nil
             if let failure {
-                if latest, var current = self.state {
-                    current.applySaved(key: bot.key, savedAt: before)
+                if var current = self.state {
+                    current.applySaved(key: bot.key, savedAt: entry.confirmed)
                     self.state = current
                 }
+                // Back in Needs my attention is not news.
+                if entry.confirmed == nil { self.seen.insert(bot.key) }
                 let verb = saved ? "save" : "move back"
                 self.show(SaveToast(text: "Couldn't \(verb) \(bot.name). \(failure.message)", isError: true))
             }
             self.poke()
         }
+    }
+
+    /// Drops queued and unanswered Save for later changes and the toast (new server or key).
+    func resetSaves() {
+        saveEpoch += 1
+        saveChain?.cancel()
+        saveChain = nil
+        pendingSaved = [:]
+        toast = nil
+    }
+
+    /// Settings → Remove: no control key, so no buttons and nothing left to send.
+    func removeControlKey() {
+        ControlKey.delete()
+        canSave = false
+        resetSaves()
     }
 
     func undo(_ toast: SaveToast) {
@@ -397,8 +435,7 @@ final class FleetModel: ObservableObject {
     /// baseline so nothing from it is shown as "last good" Fleet data, and its control key so it is
     /// never sent anywhere else.
     func forgetServerData() {
-        ControlKey.delete()
-        canSave = false
+        removeControlKey()
         generation += 1
         state = nil
         problem = nil

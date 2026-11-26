@@ -666,7 +666,7 @@
         "botId": "11c79271-23cb-4a59-a79e-7bd71c96d55e",
         "botName": "Dropbox Rebuild PM",
         "kind": "summary",
-        "detail": "PR #48 (Folder sync v2) is green and waiting on your review. The Cursor rollback test is 2 of 4 steps in; nothing else is blocked."
+        "detail": "PR #48 is green and waiting on your review. Rollback test is 2 of 4 steps in."
       },
       {
         "seq": 31,

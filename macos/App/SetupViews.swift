@@ -137,8 +137,7 @@ struct SettingsView: View {
                     .textFieldStyle(.roundedBorder)
                 if model.canSave {
                     Button("Remove") {
-                        ControlKey.delete()
-                        model.canSave = false
+                        model.removeControlKey()
                         controlText = ""
                         result = "Control key removed. Later and Move back are hidden."
                     }
@@ -162,6 +161,7 @@ struct SettingsView: View {
                     KeychainStore.delete()
                     model.forgetServerData()
                     keyText = ""
+                    controlText = ""
                     result = "Keys removed from the Keychain."
                     Task { await model.refresh() }
                 }
@@ -212,10 +212,14 @@ struct SettingsView: View {
         }
         _ = model.saveServer(urlText)
         if !control.isEmpty {
+            // Storing replaces the old item, so a failure can leave none.
             guard ControlKey.save(control) else {
+                model.canSave = ControlKey.load() != nil
                 result = "Couldn't store the control key."
                 return
             }
+            // A new key: nothing queued with the old one is sent with it.
+            model.resetSaves()
             controlText = ""
             model.canSave = true
         }

@@ -131,7 +131,8 @@ struct FleetDerived {
 
     /// Activity for one bot, newest first.
     func activity(for bot: Bot) -> [ActivityItem] {
-        activity.filter { $0.account == bot.account && $0.botId == bot.id }
+        // Collapsed again: repeats split by another bot's update in the Feed are back to back here.
+        Rules.visibleActivity(activity.filter { $0.account == bot.account && $0.botId == bot.id })
     }
 
     /// Group cards for one account, in roster group order. Empty groups are dropped.

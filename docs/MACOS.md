@@ -45,8 +45,10 @@ also attached to the GitHub Release.
   the bot that started it), then +N. Click it to expand the list in place. It is hidden when no
   session ran in the last 24 hours. Sessions are FYI only and never Needs my attention.
 - **Focus**: Needs my attention, one bot at a time, with its account tag (indigo Avi's Work,
-  green Admin), its one line (the latest summary, else its step; full text on hover), and its
-  recent updates. **Open chat · Avi's Work** / **Open chat · Admin** opens
+  green Admin), its one line, and its recent updates. The one line is the bot's latest summary
+  while it is among the latest 40 updates the app reads, else its step. Like every feed line it
+  is at most 80 characters (the Worker's cap); hover shows all of it. Showing longer summaries
+  would need `summary` on `bots[]` in `/api/v1/state` (a Worker change). **Open chat · Avi's Work** / **Open chat · Admin** opens
   `grokbot://app/v1/agent?id=<botId>`; the label names the account because the link opens
   whichever Grok Bot account is signed in. Press **N** for the next bot. Up next, Save for later
   and every other bot by account follow.
