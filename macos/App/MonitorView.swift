@@ -205,6 +205,15 @@ private struct AccountTile: View {
                             Spacer(minLength: 4)
                             SignalChip(signal: card.signal)
                         }
+                        VStack(alignment: .leading, spacing: 3) {
+                            HStack(spacing: 6) {
+                                title.fixedSize()
+                                activeBubble
+                                Spacer(minLength: 4)
+                                SignalChip(signal: card.signal)
+                            }
+                            useFirst
+                        }
                         // With a bubble, keep the whole name and drop the chip under it instead.
                         VStack(alignment: .leading, spacing: 3) {
                             HStack(spacing: 6) {
