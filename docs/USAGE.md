@@ -28,6 +28,59 @@ The monitor is **push-only**. It never asks a bot anything, so it can never cost
 Rough scale: 35 bots × ~4 reports per turn × a few dozen turns a day is a few thousand small
 requests per day, far inside the Workers / Durable Objects free allowances.
 
+## Grok plan usage: who pushes it, and when
+
+The Grok bar (`grok[]` in `/api/v1/state`) stays empty until someone pushes
+`POST /ingest/v1/grok-usage`. Only a bot can read Grok Bot's own usage report (plan % used,
+reset time, each bot's share, the routines part), so the push rides on a turn that bot is
+already running. Nothing in this repo schedules it, and no routine exists just to push it.
+
+1. **During a normal turn** (for example the morning rollup, or any turn that already opens the
+   usage report), the bot writes what the report shows to a snapshot file outside the repo:
+
+   ```json
+   {
+     "account": "work",
+     "pctUsed": 41,
+     "resetAt": "2026-11-29T00:00:00Z",
+     "asOf": "2026-11-26T09:05:00Z",
+     "bots": [
+       { "name": "Chief", "share": 22, "routinesShare": 4 },
+       { "name": "Session Monitor", "share": 9 }
+     ]
+   }
+   ```
+
+   `pctUsed`, `share` and `routinesShare` are percent (0–100); `routinesShare` is the routines
+   part of that bot's share. `resetAt` and `asOf` are ms, seconds or ISO-8601; `resetAt` may be
+   null. `asOf` is when the report was read. Use the bot names exactly as the report shows
+   them; `botId` instead of `name` also works.
+2. **Then it runs the pusher once** (one POST, no retry; a `429` waits for a later turn):
+
+   ```sh
+   node scripts/push-grok-usage.mjs /path/to/grok-usage.json --dry-run   # check the mapping
+   BOT_FLEET_URL=https://bot-fleet-monitor.<subdomain>.workers.dev \
+   BOT_FLEET_KEY_FILE=/path/to/that-account-key-file \
+     node scripts/push-grok-usage.mjs /path/to/grok-usage.json
+   ```
+
+   Names map to bot ids from `docs/roster-seed.json` (full name, or the part before " · ",
+   any case) plus an optional `--roster file.json` (`{"bots":[{"id","name"}]}`). Names it cannot
+   match are summed into one **Other** row and listed on stderr, so the roster can be fixed.
+   Exit `0` sent, `1` the Worker refused it (prints only `HTTP <status>`), `2` bad input.
+
+Who does it:
+
+| Side | Bot | `account` | Key file (`BOT_FLEET_KEY_FILE`) | Roster |
+| --- | --- | --- | --- | --- |
+| Avi's Work | Session Monitor, on this box | `work` | `/workspace/bot-fleet-monitor-secrets/ingest-key-work` | `docs/roster-seed.json` |
+| Admin | Leaf bot, on its own machine | `leaf` | that machine's copy of `ingest-key-leaf` | `--roster` with the Admin bots (they are not in the seed) |
+
+The key file is a path; the pusher reads it and never prints it. Never paste a key into a
+snapshot file, a chat or a command line. `asOf` goes out in `grok[]` so the Mac app can show
+"as of <time>" and a stale push is obvious rather than silently wrong. A snapshot whose bot
+rows are all invalid is refused (exit 2) instead of wiping the stored breakdown.
+
 ## How to confirm there is no polling
 
 Run these from the repo root. Each should print nothing (or only the comments shown):

@@ -9,6 +9,8 @@
 #   BOT_FLEET_NAME    display name; REQUIRED for any bot not in docs/roster-seed.json
 #                     (every Leaf bot, and work bots added after the seed)
 #   BOT_FLEET_GROUP   optional; work bots: Main | PMs | Asana | Sub-Bots | Unassigned
+#   BOT_FLEET_AVATAR  optional "shape:color", e.g. blob:black (status reports only;
+#                     the server ignores shapes/colors it does not know)
 #
 # Usage:
 #   report.sh status <working|waiting_user|idle|error|done> ["one-line step, <=80 chars"]
@@ -25,7 +27,7 @@ set -u
 warn() { printf 'bot-fleet: %s\n' "$*" >&2; }
 
 usage() {
-  sed -n '13,18p' "$0" >&2
+  sed -n '15,20p' "$0" >&2
   exit 0
 }
 
@@ -103,6 +105,13 @@ case $kind in
     esac
     body+=",\"status\":$(json_str "$status")"
     [ $# -ge 2 ] && body+=",\"step\":$(json_str "$(cap "$2" 80)")"
+    if [ -n "${BOT_FLEET_AVATAR:-}" ]; then
+      if [[ $BOT_FLEET_AVATAR =~ ^([A-Za-z]{1,20}):([A-Za-z]{1,20})$ ]]; then
+        body+=",\"avatar\":{\"shape\":$(json_str "${BASH_REMATCH[1]}"),\"color\":$(json_str "${BASH_REMATCH[2]}")}"
+      else
+        warn "BOT_FLEET_AVATAR must look like blob:black; sending the status without it"
+      fi
+    fi
     ;;
   summary)
     [ $# -ge 1 ] || usage

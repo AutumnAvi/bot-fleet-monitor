@@ -1,7 +1,7 @@
 import { env } from "cloudflare:workers";
 import { beforeEach, describe, expect, it } from "vitest";
 import { accountForKey, classifyKey, parsePasswordHash, sha256Hex, verifyPassword } from "../src/lib/auth";
-import { BASE, LEAF_KEY, READ_KEY, SESSIONS_KEY, TEST_PASSWORD, WORK_KEY } from "./fixtures";
+import { BASE, CONTROL_KEY, LEAF_KEY, READ_KEY, SESSIONS_KEY, TEST_PASSWORD, WORK_KEY } from "./fixtures";
 import { CHIEF, call, detail, findBot, fleet, freshStore, ingest, login, nextIp, sessionCookie, sql } from "./helpers";
 
 beforeEach(freshStore);
@@ -190,6 +190,27 @@ describe("ingest write keys", () => {
     expect(
       await accountForKey(LEAF_KEY, { INGEST_KEY_WORK: WORK_KEY, INGEST_KEY_LEAF: LEAF_KEY, READ_KEY: LEAF_KEY }),
     ).toBeNull();
+  });
+
+  it("the control key is its own role and never an account", async () => {
+    expect(await classifyKey(CONTROL_KEY, env)).toBe("control");
+    expect(await accountForKey(CONTROL_KEY, env)).toBeNull();
+    // Missing or short control key: the role does not exist, nothing else changes.
+    expect(await classifyKey(CONTROL_KEY, { ...env, CONTROL_KEY: undefined })).toBeNull();
+    expect(await classifyKey(READ_KEY, { ...env, CONTROL_KEY: undefined })).toBe("read");
+    expect(await classifyKey("bfc_short", { ...env, CONTROL_KEY: "bfc_short" })).toBeNull();
+  });
+
+  it("a control key equal to any other key rejects every key", async () => {
+    const others = { INGEST_KEY_WORK: WORK_KEY, INGEST_KEY_LEAF: LEAF_KEY, INGEST_KEY_SESSIONS: SESSIONS_KEY, READ_KEY };
+    for (const [name, value] of Object.entries(others)) {
+      const config = { ...others, CONTROL_KEY: value };
+      for (const key of [...Object.values(others), CONTROL_KEY]) {
+        expect(await classifyKey(key, config), `${name} == CONTROL_KEY, presenting ${key.slice(0, 4)}`).toBeNull();
+      }
+    }
+    // Same check with surrounding whitespace (secrets are trimmed before comparing).
+    expect(await classifyKey(READ_KEY, { ...others, CONTROL_KEY: ` ${READ_KEY}\n` })).toBeNull();
   });
 });
 

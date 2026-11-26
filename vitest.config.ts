@@ -1,7 +1,7 @@
 import { pbkdf2Sync } from "node:crypto";
 import { cloudflareTest } from "@cloudflare/vitest-plugin";
 import { defineConfig } from "vitest/config";
-import { LEAF_KEY, READ_KEY, SESSIONS_KEY, TEST_ITERATIONS, TEST_PASSWORD, TEST_SALT_HEX, WORK_KEY } from "./test/fixtures.ts";
+import { CONTROL_KEY, LEAF_KEY, READ_KEY, SESSIONS_KEY, TEST_ITERATIONS, TEST_PASSWORD, TEST_SALT_HEX, WORK_KEY } from "./test/fixtures.ts";
 
 const b64url = (buf: Buffer): string => buf.toString("base64url");
 const salt = Buffer.from(TEST_SALT_HEX, "hex");
@@ -14,6 +14,7 @@ const testSecrets = {
   INGEST_KEY_LEAF: LEAF_KEY,
   INGEST_KEY_SESSIONS: SESSIONS_KEY,
   READ_KEY: READ_KEY,
+  CONTROL_KEY: CONTROL_KEY,
 };
 // Also exported to the environment so wrangler's required-secrets check stays quiet.
 Object.assign(process.env, testSecrets);

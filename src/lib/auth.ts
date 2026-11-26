@@ -96,9 +96,14 @@ export interface KeyEnv {
   INGEST_KEY_LEAF?: string;
   INGEST_KEY_SESSIONS?: string;
   READ_KEY?: string;
+  CONTROL_KEY?: string;
 }
 
-export type KeyRole = "work" | "leaf" | "sessions" | "read";
+/**
+ * `control` is the Mac app's Save-for-later key: it may only call
+ * POST /api/v1/bots/<account>/<id>/saved. It cannot read or report anything.
+ */
+export type KeyRole = "work" | "leaf" | "sessions" | "read" | "control";
 
 function usableKey(value: string | undefined): string | null {
   const key = value?.trim();
@@ -106,7 +111,7 @@ function usableKey(value: string | undefined): string | null {
 }
 
 function configuredSecrets(env: KeyEnv): string[] {
-  return [env.INGEST_KEY_WORK, env.INGEST_KEY_LEAF, env.INGEST_KEY_SESSIONS, env.READ_KEY]
+  return [env.INGEST_KEY_WORK, env.INGEST_KEY_LEAF, env.INGEST_KEY_SESSIONS, env.READ_KEY, env.CONTROL_KEY]
     .map(usableKey)
     .filter((key): key is string => key !== null);
 }
@@ -129,25 +134,24 @@ export function keysCollide(env: KeyEnv): boolean {
 export async function classifyKey(presented: string | null, env: KeyEnv): Promise<KeyRole | null> {
   if (keysCollide(env)) return null;
   if (!presented || presented.length > 512) return null;
-  const work = usableKey(env.INGEST_KEY_WORK);
-  const leaf = usableKey(env.INGEST_KEY_LEAF);
-  const sessions = usableKey(env.INGEST_KEY_SESSIONS);
-  const read = usableKey(env.READ_KEY);
+  const roles: [KeyRole, string | null][] = [
+    ["work", usableKey(env.INGEST_KEY_WORK)],
+    ["leaf", usableKey(env.INGEST_KEY_LEAF)],
+    ["sessions", usableKey(env.INGEST_KEY_SESSIONS)],
+    ["read", usableKey(env.READ_KEY)],
+    ["control", usableKey(env.CONTROL_KEY)],
+  ];
   const digest = await sha256(presented);
-  const workMatch = work !== null && timingSafeEqual(digest, await sha256(work));
-  const leafMatch = leaf !== null && timingSafeEqual(digest, await sha256(leaf));
-  const sessionsMatch = sessions !== null && timingSafeEqual(digest, await sha256(sessions));
-  const readMatch = read !== null && timingSafeEqual(digest, await sha256(read));
-  const hits = [workMatch, leafMatch, sessionsMatch, readMatch].filter(Boolean).length;
-  if (hits !== 1) return null;
-  if (workMatch) return "work";
-  if (leafMatch) return "leaf";
-  if (sessionsMatch) return "sessions";
-  return "read";
+  // Compare against every configured key (no early exit), then require exactly one hit.
+  const hits: KeyRole[] = [];
+  for (const [role, key] of roles) {
+    if (key !== null && timingSafeEqual(digest, await sha256(key))) hits.push(role);
+  }
+  return hits.length === 1 ? (hits[0] ?? null) : null;
 }
 
 /**
- * Maps a presented write key to its account. The sessions key and the read key
+ * Maps a presented write key to its account. The sessions, read and control keys
  * are not accounts. If any two configured secrets are identical, every key is
  * rejected.
  */

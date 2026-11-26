@@ -49,16 +49,35 @@ npx wrangler secret put INGEST_KEY_WORK         < "$S/ingest-key-work"
 npx wrangler secret put INGEST_KEY_LEAF         < "$S/ingest-key-leaf"
 npx wrangler secret put INGEST_KEY_SESSIONS     < "$S/ingest-key-sessions"
 npx wrangler secret put READ_KEY                < "$S/read-key"
+npx wrangler secret put CONTROL_KEY             < "$S/control-key"
 ```
 
 `INGEST_KEY_SESSIONS` is the box collector's key for `POST /ingest/v1/sessions` and
 `POST /ingest/v1/usage`. `READ_KEY` is the Mac app's read-only key for `GET /api/v1/state`.
-Grok plan usage uses the existing work or Admin (leaf) key, not a new one. All five secrets
+`CONTROL_KEY` is the Mac app's optional second key: it can only call
+`POST /api/v1/bots/<account>/<id>/saved` (Save for later / Move back) and nothing else.
+Grok plan usage uses the existing work or Admin (leaf) key, not a new one. All six secrets
 must differ. The Worker refuses every login while `DASHBOARD_PASSWORD_HASH` is missing or
 malformed, and refuses a key that is missing, shorter than 32 characters, or equal to another
 configured key. Keys are compared as SHA-256 and are never written to logs or to the Durable
 Object. Generate them with `scripts/gen-secrets.mjs` (it writes `ingest-key-sessions` and
 `read-key` next to the v1 files). Contract: `docs/SESSIONS-API.md`. Mac app: `docs/MACOS.md`.
+
+### Adding the control key to an existing secrets folder
+
+`CONTROL_KEY` is new in this branch and is listed in `secrets.required`, so the next deploy
+refuses to start until it is set. Session Monitor (or Avi) creates it on the box and sets it
+from the file. The value never goes in chat, a PR, a commit or a log:
+
+```sh
+S=/workspace/bot-fleet-monitor-secrets
+node scripts/gen-secrets.mjs --dir "$S" --only control-key   # prints the file name only
+npx wrangler secret put CONTROL_KEY < "$S/control-key"        # at deploy time, with Avi's OK
+```
+
+Avi pastes it into the Mac app's Settings himself, the same way as the read key
+(`docs/MACOS.md`). Without it the app just hides its Save for later buttons. To rotate: rerun with `--only control-key --force`,
+`wrangler secret put` again, and paste the new value into the app.
 
 ## 4. Deploy
 

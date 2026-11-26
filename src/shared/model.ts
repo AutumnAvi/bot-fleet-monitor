@@ -24,6 +24,29 @@ export const LEAF_GROUP = "Leaf account";
 /** Display order of the groups. "Unassigned" is only shown when it has bots. */
 export const GROUP_ORDER: readonly string[] = [...WORK_GROUPS, LEAF_GROUP];
 
+/** A bot's look in the Grok Bot app (profile.json `avatarShape` / `avatarColor`). */
+export const AVATAR_SHAPES = ["blob", "wedge", "cloud", "hex", "tablet", "teardrop", "pebble", "star"] as const;
+export type AvatarShape = (typeof AVATAR_SHAPES)[number];
+export const AVATAR_COLORS = [
+  "red",
+  "yellow",
+  "orange",
+  "cyan",
+  "brown",
+  "black",
+  "blue",
+  "green",
+  "purple",
+  "pink",
+  "gray",
+] as const;
+export type AvatarColor = (typeof AVATAR_COLORS)[number];
+
+export interface BotAvatar {
+  shape: AvatarShape;
+  color: AvatarColor;
+}
+
 /** A `working` report older than this is shown as stale and counted under Stuck. */
 export const STALE_AFTER_MS = 10 * 60 * 1000;
 
@@ -184,7 +207,14 @@ export interface GrokUsage {
   account: Account;
   pctUsed: number;
   resetAt: number | null;
+  /** When the Worker received this report (ms). */
   reportedAt: number;
+  /**
+   * When the numbers were read from Grok Bot's usage report (ms): the pusher's
+   * `asOf`, capped at the receive time, or the receive time when it sent none.
+   * The app shows "as of <time>".
+   */
+  asOf: number;
   bots: GrokBotUsage[];
 }
 
@@ -207,6 +237,8 @@ export const RATE_LIMITS = {
   ingestPerBotPerMinute: 30,
   /** Login attempts per client IP per 15 minutes. */
   loginPerIpPer15Min: 10,
+  /** Save-for-later changes per minute from the Mac app (control key). */
+  controlSavedPerMinute: 30,
 } as const;
 
 export type EventKind =
@@ -242,6 +274,8 @@ export interface BotView {
   lastReportAt: number | null;
   /** Server time (ms) the bot was put in "Save for later"; null when it is not saved. */
   savedAt: number | null;
+  /** The bot's symbol, from its last report that carried a valid one; null when never set. */
+  avatar: BotAvatar | null;
 }
 
 export interface ActivityItem {

@@ -6,7 +6,9 @@ environment variable names only; the real URL and write keys live outside the re
 
 Set per bot: `BOT_FLEET_URL`, `BOT_FLEET_KEY`, `BOT_FLEET_BOT_ID`, plus `BOT_FLEET_NAME` (and
 optionally `BOT_FLEET_GROUP`) for any bot that is not in `docs/roster-seed.json`: every Leaf
-bot, and any work bot added after the seed. `report.sh` is `docs/report.sh` from this repo,
+bot, and any work bot added after the seed. Any bot may also set
+`BOT_FLEET_AVATAR="shape:color"` (e.g. `blob:black`, its Grok Bot look) so its status reports
+carry its symbol; without it the stored symbol (or the backfill's) stays. `report.sh` is `docs/report.sh` from this repo,
 installed wherever the bot can run it.
 
 ---
@@ -36,7 +38,8 @@ Avi's Bot Fleet dashboard shows only what you push. Pushing is cheap; it must ne
 8. If a report fails, carry on with the work. Do not retry in a loop and do not start a
    turn later to resend it; your next normal report replaces it.
 9. Config comes from env vars BOT_FLEET_URL, BOT_FLEET_KEY, BOT_FLEET_BOT_ID
-   (+ BOT_FLEET_NAME if you are not in the roster seed, e.g. every Leaf bot).
+   (+ BOT_FLEET_NAME if you are not in the roster seed, e.g. every Leaf bot; optional
+   BOT_FLEET_AVATAR="shape:color" for your symbol).
    Never print, paste or commit BOT_FLEET_KEY.
 ```
 

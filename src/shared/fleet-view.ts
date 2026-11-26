@@ -166,31 +166,70 @@ export function buildFleetView(bots: readonly BotView[], options: ViewOptions): 
   return { counts, attention, saved, savedCount, groups, shown };
 }
 
-/** Feed copy for one activity item (without the bot name). */
-export function activityText(item: Pick<ActivityItem, "kind" | "detail">): string {
-  const d = item.detail;
-  switch (item.kind) {
+/** Short label for an activity kind (the feed's badge). */
+export function activityLabel(kind: ActivityItem["kind"]): string {
+  switch (kind) {
     case "working":
-      return d ?? "Started working";
+      return "Working";
     case "waiting_user":
-      return d ? `Needs you: ${d}` : "Needs you";
+      return "Needs you";
     case "error":
-      return d ? `Stuck: ${d}` : "Stuck";
+      return "Stuck";
     case "idle":
-      return d ? `Idle · ${d}` : "Went idle";
+      return "Idle";
     case "done":
-      return d ? `Finished: ${d}` : "Finished";
+      return "Done";
     case "summary":
-      return "Updated need-to-know";
+      return "Summary";
     case "message":
-      return d ? `Messaged you: “${d}”` : "Messaged you";
+      return "Sent you";
     case "avi_replied":
       return "You replied";
     case "saved":
-      return d ? `Saved for later · ${d}` : "Saved for later";
+      return "Saved";
     case "unsaved":
-      return d ? `Back from Save for later · ${d}` : "Back from Save for later";
+      return "Unsaved";
   }
+}
+
+/** What comes after the label: the step, the message text (quoted), or null. */
+export function activityDetail(item: Pick<ActivityItem, "kind" | "detail">): string | null {
+  if (item.detail === null || item.kind === "summary") return null;
+  return item.kind === "message" ? `“${item.detail}”` : item.detail;
+}
+
+
+/**
+ * Activity as lists show it (newest first in, newest first out). `summary` events are
+ * hidden: the latest summary is already the bot's "What's happening" line. Back-to-back
+ * events from the same bot with the same text (a Needs-you status and the message copy
+ * that repeats it) become one row: the newest, or the status when a message repeats it.
+ */
+export function visibleActivity<T extends ActivityItem>(items: readonly T[]): T[] {
+  const out: T[] = [];
+  // True once the last kept row has absorbed an older repeat; then it stays as is.
+  let merged = false;
+  for (const item of items) {
+    if (item.kind === "summary") continue;
+    const prev = out[out.length - 1];
+    const same =
+      prev !== undefined &&
+      prev.account === item.account &&
+      prev.botId === item.botId &&
+      (item.detail !== null ? prev.detail === item.detail : prev.detail === null && prev.kind === item.kind);
+    if (!same) {
+      out.push(item);
+      merged = false;
+      continue;
+    }
+    // The newer row is kept, except a message copy gives way to the status right
+    // behind it that it repeats.
+    if (!merged && prev.kind === "message" && (item.kind === "waiting_user" || item.kind === "error")) {
+      out[out.length - 1] = item;
+    }
+    merged = true;
+  }
+  return out;
 }
 
 /** Status color for an activity item's dot. */

@@ -19,7 +19,7 @@ const SECRET_PATTERNS: RegExp[] = [
   /\bxox[abprs]-[A-Za-z0-9-]{10,}\b/g,
   /\bAKIA[0-9A-Z]{16}\b/g,
   /\bAIza[0-9A-Za-z_-]{30,}\b/g,
-  /\bbf[wlrs]_[A-Za-z0-9_-]{20,}\b/g,
+  /\bbf[wlrsc]_[A-Za-z0-9_-]{20,}\b/g,
   /\b(Bearer)\s+[A-Za-z0-9._~+/=-]{16,}/gi,
 ];
 
