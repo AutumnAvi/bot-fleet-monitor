@@ -261,19 +261,31 @@ private struct AccountTile: View {
         if card.useFirst { Pill(text: "Use first", tone: .indigo, uppercase: true) }
     }
 
-    /// "6% weekly", or Cursor's "3.9% Models   22.9% Other".
+    /// "6% weekly", or Cursor's "3.9% Models   22.9% Other". Cursor's two numbers stack (Models over
+    /// Other) when the tile is too narrow for both on one line, so neither is ever cut off.
     private var numbers: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 14) {
-            ForEach(Array(card.headline.enumerated()), id: \.offset) { _, meter in
-                HStack(alignment: .firstTextBaseline, spacing: 4) {
-                    Text(meter.used.map(MonitorRules.pct) ?? (meter.noLimit ? "No limit" : "–"))
-                        .font(.system(size: 24, weight: .bold)).monospacedDigit()
-                        .foregroundStyle(meter.signal == .ok ? Theme.text : Theme.fg(meter.signal.tone))
-                        .lineLimit(1).minimumScaleFactor(0.7)
-                    Text(meter.label == "Weekly" ? "weekly" : meter.label).font(Theme.F.small)
-                        .foregroundStyle(Theme.text3).lineLimit(1)
-                }
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .firstTextBaseline, spacing: 14) {
+                ForEach(Array(card.headline.enumerated()), id: \.offset) { _, meter in headline(meter).fixedSize() }
             }
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(Array(card.headline.enumerated()), id: \.offset) { _, meter in headline(meter).fixedSize() }
+            }
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(Array(card.headline.enumerated()), id: \.offset) { _, meter in headline(meter) }
+            }
+        }
+    }
+
+    /// One big number and its small label: "33.2%  Other".
+    private func headline(_ meter: MonitorMeter) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 4) {
+            Text(meter.used.map(MonitorRules.pct) ?? (meter.noLimit ? "No limit" : "–"))
+                .font(.system(size: 24, weight: .bold)).monospacedDigit()
+                .foregroundStyle(meter.signal == .ok ? Theme.text : Theme.fg(meter.signal.tone))
+                .lineLimit(1).minimumScaleFactor(0.7)
+            Text(meter.label == "Weekly" ? "weekly" : meter.label).font(Theme.F.small)
+                .foregroundStyle(Theme.text3).lineLimit(1)
         }
     }
 

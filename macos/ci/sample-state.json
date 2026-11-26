@@ -1362,14 +1362,14 @@
         {
           "id": "cursor-models",
           "label": "Cursor Models",
-          "pctUsed": 30,
+          "pctUsed": 35.5,
           "resetAt": 1796122151963,
           "state": "ok"
         },
         {
           "id": "other-models",
           "label": "Other Models",
-          "pctUsed": 62,
+          "pctUsed": 62.7,
           "resetAt": 1796122151963,
           "state": "ok"
         }

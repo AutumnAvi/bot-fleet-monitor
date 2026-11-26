@@ -55,6 +55,9 @@ jobs:
           "$BIN" --snapshot ci/sample-state.json shots/monitor-wide.png tab=monitor width=1920 height=700 > /dev/null
           "$BIN" --snapshot ci/sample-state.json shots/monitor-tall.png tab=monitor width=600 height=1400 > /dev/null
           "$BIN" --snapshot ci/sample-state.json shots/monitor-dark.png tab=monitor dark > /dev/null
+          # About 1024 points wide: six account tiles in one row, Cursor's Models and Other must stay readable.
+          "$BIN" --snapshot ci/sample-state.json shots/monitor-1024.png tab=monitor width=1024 height=720 > /dev/null
+          "$BIN" --snapshot ci/sample-state.json shots/monitor-1024-dark.png tab=monitor width=1024 height=720 dark > /dev/null
           "$BIN" --snapshot ci/sample-state.json shots/monitor-switch-FIXTURE.png tab=monitor usage=switch > shots/monitor-switch.log
           "$BIN" --snapshot ci/sample-state.json shots/later.png tab=later > /dev/null
           # The same window from the frozen live GET /api/v1/state (Nov 26), for docs/screenshots/simple-main/.
@@ -70,7 +73,7 @@ jobs:
           # Monitor: signals, Use first only on Main Claude, no banner while nothing is at Switch now.
           grep -F 'ACCOUNT Main Claude | 5-hour 38%, Weekly 29% | OK | resets 3:49 PM | Use first' shots/monitor.log
           grep -F 'ACCOUNT Admin Claude | 5-hour 82%, Weekly 29% | Near limit' shots/monitor.log
-          grep -F 'ACCOUNT Cursor | Models 30%, Other 62% | OK' shots/monitor.log
+          grep -F 'ACCOUNT Cursor | Models 35.5%, Other 62.7% | OK' shots/monitor.log
           grep -F 'ACCOUNT Grok · Admin | used 23% | OK' shots/monitor.log
           grep -F 'BANNER none' shots/monitor.log
           if grep -E '^ACCOUNT (API|.*API ·)' shots/monitor.log; then exit 1; fi
@@ -96,7 +99,7 @@ jobs:
           grep -Fx '  MHELPER lint | 1/2 steps | Running | <1m' shots/monitor.log
           # Fixture: Main Claude at Switch now, so Use first and the banner point to Cursor. Never to Admin Claude or Codex.
           grep -F 'ACCOUNT Main Claude | 5-hour 96%, Weekly 29% | Switch now' shots/monitor-switch.log
-          grep -E '^ACCOUNT Cursor \| Models 81%, Other 62% \| Near limit \| .* \| Use first$' shots/monitor-switch.log
+          grep -E '^ACCOUNT Cursor \| Models 81%, Other 62.7% \| Near limit \| .* \| Use first$' shots/monitor-switch.log
           grep -F 'BANNER Switch now · Main Claude · 5-hour 96% · resets' shots/monitor-switch.log
           grep -E '^BANNER .* · Use Cursor$' shots/monitor-switch.log
           if grep -E '^ACCOUNT (Admin Claude|Codex|Grok).*Use first' shots/monitor.log shots/monitor-switch.log shots/live/switch.log; then exit 1; fi
