@@ -519,7 +519,7 @@
       "group": "Sub-Bots",
       "sortIndex": 30,
       "status": "idle",
-      "step": "Cloudinary vs Dropbox cost memo shared",
+      "step": "[TEST] Cloudinary vs Dropbox cost memo shared",
       "statusAt": 1795597512000,
       "summaryAt": null,
       "unread": 0,
@@ -1087,7 +1087,7 @@
     {
       "id": "t3-folder-sync",
       "tool": "t3",
-      "title": "Folder sync v2 · PR #48",
+      "title": "[Dropbox Rebuild PM] Folder sync v2 · PR #48 - Nov 25 2026",
       "status": "finished",
       "step": 7,
       "steps": 7,
