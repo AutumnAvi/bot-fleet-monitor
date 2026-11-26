@@ -228,13 +228,19 @@ enum MonitorRules {
 
     // MARK: Coding sessions
 
-    /// Coding sessions (T3, Claude, Cursor, Codex) that are active or ended in the last 24 hours.
-    /// Tool-less records (API hand-offs, audits) are not coding sessions. Active first, then the
-    /// most recently ended.
+    /// Coding work: a T3, Claude, Cursor or Codex session that is active, or ended and started in
+    /// the last week. Tool-less records (API hand-offs, audits) are not coding sessions, and an
+    /// old session the collector only now closed is not today's work.
+    static func isCodingWork(_ s: CodingSession, now: Double) -> Bool {
+        s.tool != nil && (Sessions.isActive(s) || now - s.startedAt < recentWindowMs)
+    }
+
+    /// Coding sessions that are active or ended in the last 24 hours. Active first, then the most
+    /// recently ended.
     static func sessions(_ d: FleetDerived) -> [CodingSession] {
         let order = ["running", "in_review", "paused_limit", "stalled"]
         let keep = (d.sessions + d.orphans).filter { s in
-            s.tool != nil && (Sessions.isActive(s) || d.now - endedAt(s) < sessionWindowMs)
+            isCodingWork(s, now: d.now) && (Sessions.isActive(s) || d.now - endedAt(s) < sessionWindowMs)
         }
         return keep.sorted { a, b in
             let ra = order.firstIndex(of: Sessions.displayStatus(a)) ?? order.count
@@ -288,7 +294,7 @@ enum MonitorRules {
     /// session it owns. Needs-you bots are not pinned; the dot marks them. Bots quiet for a week
     /// drop off unless they need Avi.
     static func recentBots(_ d: FleetDerived) -> [RecentBot] {
-        let coding = (d.sessions + d.orphans).filter { $0.tool != nil }
+        let coding = (d.sessions + d.orphans).filter { isCodingWork($0, now: d.now) }
         var owned: [String: [CodingSession]] = [:]
         for s in coding { if let id = s.ownerBotId { owned[id, default: []].append(s) } }
         let attention = Set(d.attention.map(\.key))
@@ -303,11 +309,9 @@ enum MonitorRules {
             if d.now - lastAt > recentWindowMs && !needsYou { continue }
             let live = mine.filter(Sessions.isLive).max { activityAt($0) < activityAt($1) }
             let sessionNewer = (sessionAt ?? 0) > (own ?? 0)
-            var line = Rules.clean(d.oneLine(row))
-            if let live {
-                line = Sessions.cleanTitle(live.title)
-            } else if row.state == .unknown, let latestSession {
-                line = Sessions.cleanTitle(latestSession.title)
+            var line = ownLine(row, d: d)
+            if !needsYou, let session = live ?? (sessionNewer ? latestSession : nil) {
+                line = Sessions.cleanTitle(session.title)
             }
             let (status, tone) = statusLabel(row, needsYou: needsYou, live: live != nil,
                                              finished: sessionNewer && latestSession.map(Sessions.isActive) == false)
@@ -319,9 +323,17 @@ enum MonitorRules {
         }
     }
 
-    /// Live, Finished, Needs you, Stuck, Stale, Idle, or Saved.
+    /// The bot's own line: its summary when that is newer than its step, else the step.
+    /// No "[TEST]" prefix and no "No update for …" lead-in (the Stale chip says that).
+    private static func ownLine(_ row: BotRow, d: FleetDerived) -> String {
+        let step = row.bot.step.map(Rules.clean).flatMap { $0.isEmpty ? nil : $0 } ?? row.step
+        let summary = d.oneLine(row)
+        let summaryIsNewer = (row.bot.summaryAt ?? 0) >= (row.bot.statusAt ?? 0)
+        return summaryIsNewer && summary != row.step ? Rules.clean(summary) : step
+    }
+
+    /// Needs you, Stuck or Stale; else Live, Saved, Finished or Idle.
     private static func statusLabel(_ row: BotRow, needsYou: Bool, live: Bool, finished: Bool) -> (String, Tone) {
-        if row.bot.savedAt != nil { return ("Saved", .violet) }
         if needsYou {
             switch row.state {
             case .error: return ("Stuck", .red)
@@ -329,7 +341,8 @@ enum MonitorRules {
             default: return ("Needs you", .amber)
             }
         }
-        if live || row.state == .working { return ("Live", .green) }
+        if live || (row.state == .working && row.bot.savedAt == nil) { return ("Live", .green) }
+        if row.bot.savedAt != nil { return ("Saved", .violet) }
         if finished { return ("Finished", .gray) }
         return ("Idle", .gray)
     }
