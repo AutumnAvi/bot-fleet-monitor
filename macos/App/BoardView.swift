@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Board tab: one kanban column per bot status, using the server's partition (Needs me, Working,
-/// Saved for later, Idle & done). Read-only: the only actions open a chat or a PR.
+/// Saved for later, Idle & done). Actions open a chat or a PR, or (with a control key) Later / Move back.
 struct BoardView: View {
     @ObservedObject var model: FleetModel
     let d: FleetDerived
@@ -55,7 +55,7 @@ struct BoardView: View {
     private func needsColumn(scrolls: Bool, perRow: Int) -> some View {
         BoardColumn(.needs, count: d.attention.count, byAccount: grouped(d.attention), scrolls: scrolls) {
             cards(d.attention, lane: .needs, perRow: perRow) { row in
-                BoardNeedsCard(row: row, d: d, onFocus: { model.focus(on: row.key) })
+                BoardNeedsCard(model: model, row: row, d: d, onFocus: { model.focus(on: row.key) })
             }
         }
     }
@@ -71,7 +71,7 @@ struct BoardView: View {
     private func savedColumn(scrolls: Bool) -> some View {
         BoardColumn(.saved, count: d.saved.count, byAccount: grouped(d.saved), scrolls: scrolls) {
             cards(d.saved, lane: .saved, perRow: 1) { row in
-                BoardSavedCard(row: row, now: d.now)
+                BoardSavedCard(model: model, row: row, now: d.now)
             }
         }
     }
@@ -248,6 +248,7 @@ private struct BoardTime: View {
 
 /// Needs me / Stuck / Stale. Clicking the name shows the bot in Focus.
 private struct BoardNeedsCard: View {
+    @ObservedObject var model: FleetModel
     let row: BotRow
     let d: FleetDerived
     let onFocus: () -> Void
@@ -273,6 +274,7 @@ private struct BoardNeedsCard: View {
                 if let pr = prURL {
                     LinkButton(title: Sessions.prLabel(pr.absoluteString), url: pr, compact: true)
                 }
+                SaveForLaterButton(model: model, bot: row.bot)
             }
             .padding(.top, 4)
         }
@@ -317,8 +319,9 @@ private struct BoardWorkingCard: View {
     }
 }
 
-/// Saved for later. No "Move back": the app holds a read-only key.
+/// Saved for later, with Move back when Settings has a control key.
 private struct BoardSavedCard: View {
+    @ObservedObject var model: FleetModel
     let row: BotRow
     let now: Double
 
@@ -333,7 +336,11 @@ private struct BoardSavedCard: View {
                 if let at = row.bot.savedAt { BoardTime(text: Fmt.clockOrDate(at, now: now)) }
             }
             Text(row.step).font(Theme.F.body).foregroundStyle(Theme.text2).lineLimit(2)
-            OpenChatButton(bot: row.bot, compact: true).padding(.top, 4)
+            FlowLayout(spacing: 6).callAsFunction {
+                OpenChatButton(bot: row.bot, compact: true)
+                SaveForLaterButton(model: model, bot: row.bot)
+            }
+            .padding(.top, 4)
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)

@@ -5,6 +5,7 @@ import SwiftUI
 /// The bot on screen: who it is and why it needs Avi, what it is doing, the coding sessions it
 /// started, what it said lately, then Open chat, its PR and Next.
 struct FocusCard: View {
+    @ObservedObject var model: FleetModel
     let row: BotRow
     let d: FleetDerived
     let next: BotRow?
@@ -185,6 +186,7 @@ struct FocusCard: View {
             if let pr = prLink {
                 LinkButton(title: pr.label, url: pr.url)
             }
+            SaveForLaterButton(model: model, bot: row.bot, compact: false)
             Spacer(minLength: 8)
             if let next {
                 Button {

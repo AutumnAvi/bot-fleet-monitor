@@ -2,7 +2,7 @@ import SwiftUI
 
 /// Feed tab: what needs Avi pinned on top, saved bots, then the timeline of what bots pushed.
 /// Regular and wide windows add a side column (working now, coding sessions, by account).
-/// Read-only: the app's key can only read, so there is no Save for later or Move back here.
+/// Later and Move back appear only when Settings has a control key.
 struct FeedView: View {
     @ObservedObject var model: FleetModel
     let d: FleetDerived
@@ -78,7 +78,7 @@ struct FeedView: View {
             } else {
                 LazyVGrid(columns: attentionColumns, alignment: .leading, spacing: 10) {
                     ForEach(d.attention, id: \.key) { row in
-                        FeedAttentionCard(row: row, now: d.now) { model.focus(on: row.key) }
+                        FeedAttentionCard(model: model, row: row, now: d.now) { model.focus(on: row.key) }
                     }
                 }
             }
@@ -98,7 +98,7 @@ struct FeedView: View {
         if !d.saved.isEmpty {
             VStack(alignment: .leading, spacing: 8) {
                 ForEach(Array(d.saved.prefix(3)), id: \.key) { row in
-                    FeedSavedStrip(row: row, now: d.now)
+                    FeedSavedStrip(model: model, row: row, now: d.now)
                 }
                 if d.saved.count > 3 {
                     Text("+\(d.saved.count - 3) more saved").font(Theme.F.caption).foregroundStyle(Theme.text3)
@@ -334,6 +334,7 @@ private struct FeedWorkingLabel: View {
 /// One pinned Needs-my-attention card: state and age, bot, account, step, Open chat.
 /// Clicking the name shows the bot in Focus.
 private struct FeedAttentionCard: View {
+    @ObservedObject var model: FleetModel
     let row: BotRow
     let now: Double
     let onFocus: () -> Void
@@ -362,7 +363,11 @@ private struct FeedAttentionCard: View {
             .help("Show \(row.bot.name) in Focus")
             AccountTag(account: row.account)
             Text(row.step).font(Theme.F.small).foregroundStyle(Theme.text2).lineLimit(1).help(row.step)
-            OpenChatButton(bot: row.bot, compact: true).padding(.top, 2)
+            FlowLayout(spacing: 6).callAsFunction {
+                OpenChatButton(bot: row.bot, compact: true)
+                SaveForLaterButton(model: model, bot: row.bot)
+            }
+            .padding(.top, 2)
         }
         .padding(.leading, 15)
         .padding([.trailing, .vertical], 12)
@@ -372,8 +377,9 @@ private struct FeedAttentionCard: View {
     }
 }
 
-/// Dashed violet strip for a bot in Save for later. Read-only: no Move back.
+/// Dashed violet strip for a bot in Save for later, with Move back when Settings has a control key.
 private struct FeedSavedStrip: View {
+    @ObservedObject var model: FleetModel
     let row: BotRow
     let now: Double
 
@@ -386,6 +392,7 @@ private struct FeedSavedStrip: View {
             AccountTag(account: row.account)
             Spacer(minLength: 8)
             OpenChatButton(bot: row.bot, compact: true)
+            SaveForLaterButton(model: model, bot: row.bot)
             if let savedAt = row.bot.savedAt {
                 Text(verbatim: "since \(Fmt.clockOrDate(savedAt, now: now))")
                     .font(Theme.F.caption).foregroundStyle(Theme.text3).lineLimit(1).fixedSize()

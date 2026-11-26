@@ -112,7 +112,7 @@ struct FocusView: View {
 
     @ViewBuilder private var focusArea: some View {
         if let row = current {
-            FocusCard(row: row, d: d, next: nextRow, onFocus: { model.focusKey = $0 })
+            FocusCard(model: model, row: row, d: d, next: nextRow, onFocus: { model.focusKey = $0 })
         } else {
             VStack(spacing: 10) {
                 Image(systemName: "checkmark.circle.fill").font(.system(size: 34)).foregroundStyle(Theme.fill(.green))
@@ -157,6 +157,7 @@ struct FocusView: View {
             AccountTag(account: row.account)
             StateBadge(row: row, now: d.now, uppercase: false)
             ageLabel(row)
+            SaveForLaterButton(model: model, bot: row.bot)
             OpenChatButton(bot: row.bot, compact: true)
         }
         let twoLines = VStack(alignment: .leading, spacing: 6) {
@@ -171,6 +172,7 @@ struct FocusView: View {
                 AccountTag(account: row.account)
                 StateBadge(row: row, now: d.now, uppercase: false)
                 Spacer(minLength: 6)
+                SaveForLaterButton(model: model, bot: row.bot)
                 OpenChatButton(bot: row.bot, compact: true)
             }
         }
@@ -212,6 +214,7 @@ struct FocusView: View {
                         Spacer(minLength: 8)
                         AccountTag(account: row.account)
                         Pill(text: row.bot.savedAt.map { "Saved \(Fmt.clockOrDate($0, now: d.now))" } ?? "Saved", tone: .violet)
+                        SaveForLaterButton(model: model, bot: row.bot)
                     }
                     .padding(.horizontal, 14)
                     .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)

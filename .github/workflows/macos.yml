@@ -48,6 +48,8 @@ jobs:
           "$BIN" --snapshot ci/sample-state.json shots/feed-offline.png tab=feed state=offline > /dev/null
           "$BIN" --snapshot ci/sample-state.json shots/grok-popover.png part=grok > /dev/null
           "$BIN" --snapshot ci/sample-state.json shots/focus-nodata.png tab=focus nodata > /dev/null
+          "$BIN" --snapshot ci/sample-state.json shots/focus-toast.png tab=focus toast=saved > shots/toast.log
+          "$BIN" --snapshot ci/sample-state.json shots/focus-toast-tall.png tab=focus toast=saved width=600 height=1400 > /dev/null
           cat shots/focus.log
           # Decoded the whole reply, and every bot landed in exactly one column.
           grep -F 'STATE version=2 bots=36 attention=5 sessions=9 accounts=6 grok=2 activity=36' shots/focus.log
@@ -55,6 +57,8 @@ jobs:
           # Summaries hidden and the repeated Internal DAM message folded into its status.
           grep -F 'ACTIVITY raw=36 visible=32' shots/focus.log
           grep -F 'STRIP sessions=9 running=6' shots/focus.log
+          # Later on the first bot: it moves to Saved at once (also off the menu bar count) and the toast offers Undo.
+          grep -F 'TOAST Saved for later · Undo=Dropbox Rebuild PM | saved=2 attention=4 menu=4' shots/toast.log
           grep -F 'SYMBOLS shapes=11 initials=25' shots/focus.log
           grep -F 'SYMBOL Chief · Chief of Staff | star black' shots/focus.log
           grep -E '^SYMBOL dr eggbot \| initials DE #[0-9]$' shots/focus.log

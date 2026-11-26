@@ -54,13 +54,24 @@ enum SaveFailure: Error, Equatable {
     }
 }
 
+/// The toast under the window after Later or Move back: "Saved for later · Undo", or the error.
+struct SaveToast: Equatable {
+    let id = UUID()
+    var text: String
+    /// What Undo sends: the bot and the saved value to go back to. Nil when there is no Undo.
+    var undo: Bot?
+    var undoSaved = false
+    var isError = false
+}
+
 enum DashboardTab: String, CaseIterable, Hashable {
     case focus, board, feed
     var title: String { rawValue.capitalized }
 }
 
 /// Reads GET /api/v1/state with the read key every 20 seconds (URLSession only, no web view),
-/// plus right away on launch, wake and Refresh. It never writes and never messages a bot.
+/// plus right away on launch, wake and Refresh. It never messages a bot. Its only write is Save for
+/// later (`setSaved`), signed with the separate control key.
 @MainActor
 final class FleetModel: ObservableObject {
     static let pollSeconds: Double = 20
@@ -87,6 +98,14 @@ final class FleetModel: ObservableObject {
     }
     /// The bot the Focus card shows (`account:id`). Nil means the first one that needs Avi.
     @Published var focusKey: String?
+    /// The Save for later toast, cleared after about 6 seconds.
+    @Published var toast: SaveToast?
+    /// Changes sent but not yet answered (`account:id` → saved, token). Re-applied to every read
+    /// until Fleet answers, so a poll in between never flips the bot back.
+    private var pendingSaved: [String: (saved: Bool, token: Int)] = [:]
+    private var saveToken = 0
+    /// Sends run one after another, so Undo never overtakes the change it undoes.
+    private var saveChain: Task<Void, Never>?
     /// Ticks with every poll so ages and the header clock move even when nothing changed.
     @Published private(set) var tick = Date()
 
@@ -199,9 +218,14 @@ final class FleetModel: ObservableObject {
         switch result {
         case .cancelled:
             return
-        case .success(let fresh, let code):
+        case .success(let reply, let code):
+            var fresh = reply
             httpStatus = code
             skewMs = fresh.now - Date().timeIntervalSince1970 * 1000
+            for (key, change) in pendingSaved {
+                let current = fresh.bots.first { $0.key == key }?.savedAt
+                fresh.applySaved(key: key, savedAt: change.saved ? (current ?? fresh.now) : nil)
+            }
             noteNewItems(fresh.attention)
             state = fresh
             problem = nil
@@ -246,6 +270,54 @@ final class FleetModel: ObservableObject {
             return .failure(.offline(Self.describe(error)), nil)
         } catch {
             return .failure(.offline("Can't reach Fleet."), nil)
+        }
+    }
+
+    /// Later (saved = true) or Move back (false): shown at once, sent with the control key, then
+    /// read back. On an error the bot goes back to where it was and the toast says why.
+    func setSaved(_ bot: Bot, saved: Bool, offerUndo: Bool = true) {
+        guard canSave, var current = state else { return }
+        let before = current.bots.first { $0.key == bot.key }?.savedAt
+        current.applySaved(key: bot.key, savedAt: saved ? now : nil)
+        // A read already in flight predates this change; drop its reply.
+        generation += 1
+        state = current
+        // Moving back must not ring as a new "needs you".
+        if !saved { seen.insert(bot.key) }
+        saveToken += 1
+        let token = saveToken
+        pendingSaved[bot.key] = (saved, token)
+        show(SaveToast(text: saved ? "Saved for later" : "Moved back", undo: offerUndo ? bot : nil, undoSaved: !saved))
+        guard fixedNow == nil else { return }
+        let previous = saveChain
+        saveChain = Task { [weak self] in
+            await previous?.value
+            guard let self else { return }
+            let failure = await self.sendSaved(account: bot.account, botId: bot.id, saved: saved)
+            let latest = self.pendingSaved[bot.key]?.token == token
+            if latest { self.pendingSaved[bot.key] = nil }
+            if let failure {
+                if latest, var current = self.state {
+                    current.applySaved(key: bot.key, savedAt: before)
+                    self.state = current
+                }
+                let verb = saved ? "save" : "move back"
+                self.show(SaveToast(text: "Couldn't \(verb) \(bot.name). \(failure.message)", isError: true))
+            }
+            self.poke()
+        }
+    }
+
+    func undo(_ toast: SaveToast) {
+        guard let bot = toast.undo else { return }
+        setSaved(bot, saved: toast.undoSaved, offerUndo: false)
+    }
+
+    private func show(_ next: SaveToast) {
+        toast = next
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 6_000_000_000)
+            if self?.toast?.id == next.id { self?.toast = nil }
         }
     }
 
@@ -370,6 +442,23 @@ final class FleetModel: ObservableObject {
         }
         let request = UNNotificationRequest(identifier: "botfleet.attention", content: content, trigger: nil)
         UNUserNotificationCenter.current().add(request)
+    }
+}
+
+extension FleetState {
+    /// Puts a bot in or out of Save for later locally, and keeps the attention list (the menu bar
+    /// count) in step: a saved bot leaves it; a moved-back bot that needs Avi rejoins it.
+    mutating func applySaved(key: String, savedAt: Double?) {
+        guard let index = bots.firstIndex(where: { $0.key == key }) else { return }
+        bots[index].savedAt = savedAt
+        let bot = bots[index]
+        attention.removeAll { $0.key == key }
+        guard savedAt == nil else { return }
+        let shown = Rules.displayState(bot, now: now, staleAfterMs: staleAfterMs)
+        guard shown.needsAttention else { return }
+        attention.append(AttentionItem(account: bot.account, accountLabel: bot.account.label, id: bot.id,
+                                       name: bot.name, group: bot.group, state: shown.rawValue,
+                                       step: bot.step, statusAt: bot.statusAt))
     }
 }
 

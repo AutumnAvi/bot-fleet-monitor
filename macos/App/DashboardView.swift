@@ -54,6 +54,8 @@ struct FleetWindow: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             }
             .environment(\.widthClass, WidthClass(width: geo.size.width))
+            .overlay(alignment: .bottom) { SaveToastView(model: model) }
+            .animation(.easeOut(duration: 0.2), value: model.toast)
         }
         .background(Theme.bg)
     }

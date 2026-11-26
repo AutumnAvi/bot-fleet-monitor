@@ -3,7 +3,7 @@ import SwiftUI
 
 /// CI preview, same idea as Session Monitor's:
 /// `<app> --snapshot state.json out.png [tab=focus|board|feed] [width=1440] [height=900] [dark]
-///  [state=offline] [filter=all|work|leaf] [part=grok] [nodata]`
+///  [state=offline] [filter=all|work|leaf] [part=grok] [nodata] [toast=saved]`
 /// renders the real window from a saved GET /api/v1/state reply, prints what it decoded, and exits.
 /// The clock is frozen at the sample's `now`, so ages are the same on every run. No network.
 @MainActor
@@ -36,6 +36,15 @@ enum Snapshot {
         let problem: FetchProblem? = option("state") == "offline" ? .offline("Can't reach the dashboard URL.") : nil
         let model = FleetModel(preview: state, tab: tab, filter: filter, problem: problem)
         report(state, model: model)
+        // `toast=saved`: press Later on the first bot that needs Avi (no network in previews).
+        if option("toast") == "saved" {
+            let d = FleetDerived(state: state, filter: filter, now: state.now)
+            if let first = d.attention.first {
+                model.setSaved(first.bot, saved: true)
+                let after = FleetDerived(state: model.state ?? state, filter: filter, now: state.now)
+                print("TOAST \(model.toast?.text ?? "-") · Undo=\(model.toast?.undo?.name ?? "-") | saved=\(after.saved.count) attention=\(after.attention.count) menu=\(model.items.count)")
+            }
+        }
 
         let width = CGFloat(Double(option("width") ?? "") ?? 1440)
         let height = CGFloat(Double(option("height") ?? "") ?? 900)
