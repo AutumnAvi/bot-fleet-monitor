@@ -184,6 +184,48 @@ share that is routines. The dashboard sorts by `share` and hides the list until 
 is hovered or tapped. A bot whose `routinesShare` is at least half of `share` is drawn as
 "mostly routines". `resetAt` may be null but the field is required.
 
+## Bot avatar (on `POST /ingest/v1/status`)
+
+A bot's symbol is its Grok Bot look (`avatarShape` / `avatarColor` in its `profile.json`).
+There is no image and no separate endpoint: the bot's normal status report may carry it.
+
+```json
+{ "botId": "b0642d5e-4aaf-41e7-9c15-637f06e15398", "status": "working", "step": "Drafting", "avatar": { "shape": "blob", "color": "black" } }
+```
+
+| Field | Rule |
+| --- | --- |
+| `avatar.shape` | `blob`, `wedge`, `cloud`, `hex`, `tablet`, `teardrop`, `pebble`, `star` |
+| `avatar.color` | `red`, `yellow`, `orange`, `cyan`, `brown`, `black`, `blue`, `green`, `purple`, `pink`, `gray` |
+
+Case and surrounding spaces do not matter. An unknown shape or color, a missing half, or a
+non-object `avatar` is **ignored** (the status report still succeeds). A report without a
+valid `avatar` keeps the stored one. There is no way to clear it, and nothing else accepts it.
+
+`report.sh` sends it on `status` reports when `BOT_FLEET_AVATAR="blob:black"` is set.
+
+**Avatar-only report.** A status body with a valid `avatar` and **no** `status` and **no**
+`step` (`{"botId":"…","avatar":{…}}`) sets the symbol and nothing else: no status change, no
+feed event, no change to Save for later, and it does not count as a sign of life for the stale
+timer. It still needs the account's key and an existing bot (`404` otherwise), and it uses the
+normal report rate limits. Without a valid avatar the same body is `400` (status required).
+
+One-time backfill from the box (dry run by default; prints the reports, sends nothing):
+
+```sh
+node scripts/avatar-backfill.mjs                      # work bots in docs/roster-seed.json
+node scripts/avatar-backfill.mjs --account leaf --roster leaf-roster.json   # Leaf, on its machine
+# To send (only with Avi's OK): BOT_FLEET_URL=… BOT_FLEET_KEY_FILE=/path/to/ingest-key-work \
+#   node scripts/avatar-backfill.mjs --send
+```
+
+It reads `<agents-dir>/<id>/profile.json` (default `/home/box/agent-data/agents`, change with
+`--agents-dir`) for each roster bot and skips bots with no look set. `BOT_FLEET_KEY_FILE` is a
+path; the key is read from the file and never printed. Output is HTTP status codes only.
+
+In `GET /api/v1/state` (and `/api/fleet`) every `bots[]` row has `avatar`: `{"shape","color"}`
+or `null` when never set.
+
 ## GET /api/v1/state
 
 Auth, either one:

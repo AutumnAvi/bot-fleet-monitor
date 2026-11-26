@@ -5,7 +5,8 @@ environment variable names only; the real URL and write keys live outside the re
 (see `docs/DEPLOY.md`). Work-account bots get the work key, Leaf-account bots the Leaf key.
 
 Set per bot: `BOT_FLEET_URL`, `BOT_FLEET_KEY`, `BOT_FLEET_BOT_ID`, plus `BOT_FLEET_NAME` (and
-optionally `BOT_FLEET_GROUP`) for any bot that is not in `docs/roster-seed.json`: every Leaf
+optionally `BOT_FLEET_GROUP`, and `BOT_FLEET_AVATAR="shape:color"` such as `blob:black` to
+show your Grok Bot symbol) for any bot that is not in `docs/roster-seed.json`: every Leaf
 bot, and any work bot added after the seed. `report.sh` is `docs/report.sh` from this repo,
 installed wherever the bot can run it.
 

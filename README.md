@@ -81,7 +81,7 @@ work groups are Main, PMs, Asana, Sub-Bots, Unassigned; Leaf bots are always "Le
 
 | Kind | Fields | Effect |
 | --- | --- | --- |
-| `status` | `status` (`waiting_user`, `working`, `idle`, `error`, `done`), optional `step` (≤80) | Sets the current state. |
+| `status` | `status` (`waiting_user`, `working`, `idle`, `error`, `done`), optional `step` (≤80), optional `avatar` | Sets the current state (and the bot's symbol; see `docs/SESSIONS-API.md`). |
 | `summary` | `summary` (≤600, `""` clears) | The "what you need to know" text. |
 | `message` | `text` (≤2000) | Copy of a message the bot sent Avi. Newest 30 kept. |
 | `avi-replied` | — | Avi replied: clears the message copies, records the time, takes the bot out of Save for later. |
@@ -98,7 +98,8 @@ Python's default `Python-urllib/x.y` (403, "error code: 1010") before they reach
 curl and `docs/report.sh` are fine; in Python set e.g. `"User-Agent": "bot-fleet-report/1.0"`.
 
 Dashboard write (session cookie + same-origin required): `POST /api/bots/<work|leaf>/<id>/saved`
-with `{"saved": true|false}`.
+with `{"saved": true|false}`. The Mac app's equivalent is `POST /api/v1/bots/<work|leaf>/<id>/saved`
+with the control key (`docs/SESSIONS-API.md`).
 
 Collector endpoints (a separate sessions key, not a bot key) and the read-only key are
 specified in `docs/SESSIONS-API.md`: `POST /ingest/v1/sessions`, `POST /ingest/v1/usage`,
