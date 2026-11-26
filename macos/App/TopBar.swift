@@ -61,7 +61,7 @@ struct TopBar: View {
                 .background(RoundedRectangle(cornerRadius: 8).fill(selected ? Color.white : (primary ? Theme.barRaised : Color.clear)))
         }
         .buttonStyle(PlainRowButtonStyle())
-        .help(help(tab, shortcut: shortcut))
+        .help(tabHelp(tab, shortcut: shortcut))
         .padding(.trailing, primary ? (narrow ? 4 : 8) : 0)
         return Group {
             if let shortcut, let key = shortcut.first {
@@ -72,7 +72,7 @@ struct TopBar: View {
         }
     }
 
-    private func help(_ tab: DashboardTab, shortcut: String?) -> String {
+    private func tabHelp(_ tab: DashboardTab, shortcut: String?) -> String {
         let key = shortcut.map { " (⌘\($0))" } ?? ""
         switch tab {
         case .monitor: return "Monitor · accounts, coding sessions, recently used\(key)"

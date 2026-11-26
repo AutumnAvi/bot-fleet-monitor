@@ -125,7 +125,7 @@ private struct MonitorPanel<Content: View>: View {
             content()
             if fills { Spacer(minLength: 0) }
         }
-        .frame(maxWidth: .infinity, maxHeight: fills ? .infinity : nil, alignment: .top)
+        .frame(maxWidth: .infinity, maxHeight: fills ? CGFloat.infinity : nil, alignment: .top)
         .card()
     }
 }
@@ -208,7 +208,7 @@ private struct AccountTile: View {
         }
         .padding(.horizontal, 16).padding(.vertical, 10)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .help(help)
+        .help(tooltip)
     }
 
     private var title: some View {
@@ -276,7 +276,7 @@ private struct AccountTile: View {
 
     private func barTone(_ meter: MonitorMeter) -> Tone { meter.signal == .ok ? .indigo : meter.signal.tone }
 
-    private var help: String {
+    private var tooltip: String {
         let lines = card.meters.map { m -> String in
             let value = m.noLimit ? "no limit" : m.used.map { "\(MonitorRules.pct($0)) used" } ?? "–"
             let reset = m.resetAt.map { " · resets \(Fmt.full($0))" } ?? ""
@@ -333,9 +333,9 @@ private struct MonitorSessionRow: View {
         if let link {
             Button { NSWorkspace.shared.open(link) } label: { content }
                 .buttonStyle(PlainRowButtonStyle())
-                .help("\(help)\nClick to open \(link.host ?? "link")")
+                .help("\(tooltip)\nClick to open \(link.host ?? "link")")
         } else {
-            content.help(help)
+            content.help(tooltip)
         }
     }
 
@@ -376,7 +376,7 @@ private struct MonitorSessionRow: View {
         return Fmt.hoursMinutes((session.finishedAt ?? now) - session.startedAt)
     }
 
-    private var help: String {
+    private var tooltip: String {
         var parts = [Sessions.title(session), "\(Sessions.statusLabel(session)) · \(MonitorRules.poolName(session))"]
         if let repo = session.repo { parts.append(session.branch.map { "\(repo) · \($0)" } ?? repo) }
         if let model = session.model { parts.append(session.effort.map { "\(model) · \($0)" } ?? model) }
