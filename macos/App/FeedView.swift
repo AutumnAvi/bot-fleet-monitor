@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Feed tab: what needs Avi pinned on top, saved bots, then the timeline of what bots pushed.
-/// Regular and wide windows add a side column (working now, coding sessions, by account).
+/// Regular and wide windows add a side column (working now, by account).
 /// Later and Move back appear only when Settings has a control key.
 struct FeedView: View {
     @ObservedObject var model: FleetModel
