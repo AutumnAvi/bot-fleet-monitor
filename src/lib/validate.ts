@@ -165,8 +165,11 @@ export function parseIngestPayload(
       const avatar = parseAvatar(obj.avatar);
       const status = optionalString(obj, "status");
       const stepRaw = optionalString(obj, "step");
-      // Avatar-only report (the backfill): no status and no step, just a valid avatar.
-      if (status === undefined && stepRaw === undefined && avatar !== null) {
+      // Avatar-only report (the backfill): just botId and a valid avatar. No status, step,
+      // name or group, so it can never register, rename or regroup a bot.
+      const avatarOnly =
+        avatar !== null && !("status" in obj) && !("step" in obj) && ref.name === undefined && ref.group === undefined;
+      if (avatarOnly) {
         return { ...ref, kind, status: null, step: null, avatar };
       }
       if (status === undefined || !(INGEST_STATUSES as readonly string[]).includes(status)) {

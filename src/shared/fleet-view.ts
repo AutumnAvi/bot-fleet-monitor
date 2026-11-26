@@ -198,20 +198,12 @@ export function activityDetail(item: Pick<ActivityItem, "kind" | "detail">): str
   return item.kind === "message" ? `“${item.detail}”` : item.detail;
 }
 
-/** One-line feed copy without the bot name: "Needs you · Approve cleanup". */
-export function activityText(item: Pick<ActivityItem, "kind" | "detail">): string {
-  const detail = activityDetail(item);
-  return detail === null ? activityLabel(item.kind) : `${activityLabel(item.kind)} · ${detail}`;
-}
-
-/** Which of two collapsed rows to keep: the one that asks more of Avi, then the newer. */
-const KEEP_RANK: Partial<Record<ActivityItem["kind"], number>> = { error: 3, waiting_user: 2, message: 1 };
 
 /**
  * Activity as lists show it (newest first in, newest first out). `summary` events are
  * hidden: the latest summary is already the bot's "What's happening" line. Back-to-back
  * events from the same bot with the same text (a Needs-you status and the message copy
- * that repeats it) become one row.
+ * that repeats it) become one row: the newest, or the status when a message repeats it.
  */
 export function visibleActivity<T extends ActivityItem>(items: readonly T[]): T[] {
   const out: T[] = [];
@@ -225,7 +217,8 @@ export function visibleActivity<T extends ActivityItem>(items: readonly T[]): T[
       (item.detail !== null ? prev.detail === item.detail : prev.detail === null && prev.kind === item.kind);
     if (!same) {
       out.push(item);
-    } else if ((KEEP_RANK[item.kind] ?? 0) > (KEEP_RANK[prev.kind] ?? 0)) {
+    } else if (prev.kind === "message" && (item.kind === "waiting_user" || item.kind === "error")) {
+      // The newer row is kept, except a message copy gives way to the status it repeats.
       out[out.length - 1] = item;
     }
   }

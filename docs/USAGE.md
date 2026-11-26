@@ -77,8 +77,9 @@ Who does it:
 | Admin | Leaf bot, on its own machine | `leaf` | that machine's copy of `ingest-key-leaf` | `--roster` with the Admin bots (they are not in the seed) |
 
 The key file is a path; the pusher reads it and never prints it. Never paste a key into a
-snapshot file, a chat or a command line. The bar shows "as of <time>" from `asOf`, so a stale
-push is obvious rather than silently wrong.
+snapshot file, a chat or a command line. `asOf` goes out in `grok[]` so the Mac app can show
+"as of <time>" and a stale push is obvious rather than silently wrong. A snapshot whose bot
+rows are all invalid is refused (exit 2) instead of wiping the stored breakdown.
 
 ## How to confirm there is no polling
 

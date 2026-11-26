@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { REDACTED, cleanBlock, cleanLine, redactSecrets, truncate } from "../src/lib/sanitize";
 import { ClientError, parseIngestPayload } from "../src/lib/validate";
-import { activityDetail, activityLabel, activityText, buildFleetView, openUrl, stepText, visibleActivity } from "../src/shared/fleet-view";
+import { activityDetail, activityLabel, buildFleetView, openUrl, stepText, visibleActivity } from "../src/shared/fleet-view";
 import { STALE_AFTER_MS, type ActivityItem, type BotView } from "../src/shared/model";
 import { bucketOf, displayState, lastSeenAt } from "../src/shared/status";
 import { formatClock, formatFull, formatRelative } from "../src/shared/time";
@@ -146,8 +146,8 @@ describe("fleet view", () => {
     expect(stepText(bot({ id: "x", step: "Syncing", statusAt: NOW - 14 * 60_000 }), "stale", NOW)).toBe(
       "No update for 14m · Syncing",
     );
-    expect(activityText({ kind: "done", detail: "Build" })).toBe("Done · Build");
-    expect(activityText({ kind: "avi_replied", detail: null })).toBe("You replied");
+    expect([activityLabel("done"), activityDetail({ kind: "done", detail: "Build" })]).toEqual(["Done", "Build"]);
+    expect(activityDetail({ kind: "avi_replied", detail: null })).toBeNull();
   });
 });
 
@@ -175,9 +175,8 @@ describe("activity wording", () => {
       "Saved",
       "Unsaved",
     ]);
-    expect(activityText({ kind: "waiting_user", detail: "Approve cleanup" })).toBe("Needs you · Approve cleanup");
-    expect(activityText({ kind: "message", detail: "Done, see the PR" })).toBe("Sent you · “Done, see the PR”");
-    expect(activityText({ kind: "saved", detail: "Saved from the Mac app" })).toBe("Saved · Saved from the Mac app");
+    expect(activityDetail({ kind: "waiting_user", detail: "Approve cleanup" })).toBe("Approve cleanup");
+    expect(activityDetail({ kind: "message", detail: "Done, see the PR" })).toBe("“Done, see the PR”");
     expect(activityDetail({ kind: "error", detail: null })).toBeNull();
     expect(activityDetail({ kind: "summary", detail: "Long need-to-know" })).toBeNull();
   });
@@ -201,6 +200,13 @@ describe("activity wording", () => {
       [3, "waiting_user"],
       [2, "avi_replied"],
     ]);
+  });
+
+  it("keeps the newer row when it is not a message repeating a status", () => {
+    const out = visibleActivity([item(3, "done", "PR #42"), item(2, "waiting_user", "PR #42"), item(1, "error", "PR #42")]);
+    expect(out.map((e) => [e.seq, e.kind])).toEqual([[3, "done"]]);
+    const repeat = visibleActivity([item(2, "waiting_user", "OK?"), item(1, "message", "OK?")]);
+    expect(repeat.map((e) => e.kind)).toEqual(["waiting_user"]);
   });
 
   it("does not collapse different text, different bots, or non-adjacent repeats", () => {

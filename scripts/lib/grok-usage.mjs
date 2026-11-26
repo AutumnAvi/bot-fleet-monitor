@@ -124,12 +124,16 @@ export function buildGrokUsage(snapshot, rosterBots) {
     if (routines !== null) row.routinesShare = (row.routinesShare ?? 0) + routines;
     rows.set(bot.id, row);
   });
+  if (snapshot.bots.length > 0 && rows.size === 0 && other === null) {
+    // Sending bots: [] would wipe the stored per-bot breakdown.
+    throw bad("Every bot row was invalid; nothing sent");
+  }
   if (unknown.length > 0) notes.push(`${unknown.length} unknown bot(s) summed into "${OTHER_NAME}": ${unknown.join(", ")}`);
 
   let list = [...rows.values()].sort((a, b) => b.share - a.share || a.name.localeCompare(b.name, "en"));
-  // Keep room for "Other"; fold the smallest named rows into it past the Worker's cap.
-  const room = MAX_GROK_BOTS - 1;
-  if (list.length > room) {
+  // Past the Worker's cap, fold the smallest named rows into "Other" (which takes one slot).
+  if (list.length + (other === null ? 0 : 1) > MAX_GROK_BOTS) {
+    const room = MAX_GROK_BOTS - 1;
     const folded = list.slice(room);
     list = list.slice(0, room);
     other ??= { botId: OTHER_ID, name: OTHER_NAME, share: 0, routinesShare: null };

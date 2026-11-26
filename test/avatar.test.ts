@@ -114,6 +114,18 @@ describe("avatar storage and state", () => {
     expect((await ingest("status", { botId: "nobody", avatar: { shape: "hex", color: "red" } })).status).toBe(404);
   });
 
+  it("without a status, name/group/status:null are refused, so it cannot register, rename or regroup", async () => {
+    const avatar = { shape: "hex", color: "red" };
+    expect((await ingest("status", { botId: "nobody", name: "New", avatar })).status).toBe(400);
+    expect((await ingest("status", { botId: CHIEF, name: "Renamed", avatar })).status).toBe(400);
+    expect((await ingest("status", { botId: CHIEF, group: "PMs", avatar })).status).toBe(400);
+    expect((await ingest("status", { botId: CHIEF, status: null, avatar })).status).toBe(400);
+    const st = await state();
+    expect(findBot(st, "work", "nobody")).toBeUndefined();
+    expect(findBot(st, "work", CHIEF)).toMatchObject({ group: "Main", avatar: null });
+    expect(findBot(st, "work", CHIEF)?.name).not.toBe("Renamed");
+  });
+
   it("works for Leaf bots, registered with a name", async () => {
     const res = await ingest("status", { botId: "leaf-1", name: "Leaf Helper", status: "idle", avatar: { shape: "wedge", color: "green" } }, LEAF_KEY);
     expect(res.status).toBe(201);

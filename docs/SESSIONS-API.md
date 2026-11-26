@@ -103,7 +103,7 @@ Auth: `Authorization: Bearer <INGEST_KEY_SESSIONS>`. Body cap 256 KB, at most 20
 | `attentionReason` | Optional `paused_limit`, `stalled`, or `pr_ready`. An FYI badge on the coding-session row only. It never puts a bot into Needs my attention. |
 
 There is no `pool` field. Unknown fields are `400`. Anything that looks like a credential
-(`ghp_`, `sk-`, `xoxb-`, `AKIA`, `bfw_`/`bfl_`/`bfs_`/`bfr_`, a private key, `Bearer` plus a
+(`ghp_`, `sk-`, `xoxb-`, `AKIA`, `bfw_`/`bfl_`/`bfs_`/`bfr_`/`bfc_`, a private key, `Bearer` plus a
 token) is `400` `secret_rejected`. The value is not stored and not echoed.
 
 `200 {"ok":true,"count":N}`. These rows never change a bot's status, never write an activity
@@ -188,7 +188,8 @@ is hovered or tapped. A bot whose `routinesShare` is at least half of `share` is
 `asOf` is optional: when the numbers were read from Grok Bot's usage report (ms, seconds or
 ISO-8601). The Worker caps it at the receive time and uses the receive time when it is
 missing. Each `grok[]` row in `/api/v1/state` has `account`, `pctUsed`, `resetAt`,
-`reportedAt` (receive time), `asOf` and `bots`; show "as of <asOf>".
+`reportedAt` (receive time), `asOf` and `bots`, so a client can show "as of <asOf>" (the Mac
+app does; the web dashboard does not yet).
 
 Nothing in the Worker fetches this. `scripts/push-grok-usage.mjs` builds the body from a
 snapshot file and posts it; who runs it and when is in `docs/USAGE.md`.
@@ -213,11 +214,12 @@ valid `avatar` keeps the stored one. There is no way to clear it, and nothing el
 
 `report.sh` sends it on `status` reports when `BOT_FLEET_AVATAR="blob:black"` is set.
 
-**Avatar-only report.** A status body with a valid `avatar` and **no** `status` and **no**
-`step` (`{"botId":"…","avatar":{…}}`) sets the symbol and nothing else: no status change, no
+**Avatar-only report.** A status body with only `botId` and a valid `avatar` (no `status`,
+`step`, `name` or `group`: `{"botId":"…","avatar":{…}}`) sets the symbol and nothing else: no status change, no
 feed event, no change to Save for later, and it does not count as a sign of life for the stale
 timer. It still needs the account's key and an existing bot (`404` otherwise), and it uses the
-normal report rate limits. Without a valid avatar the same body is `400` (status required).
+normal report rate limits. Without a valid avatar, or with any of those fields, it is a normal
+status report and needs `status` (`400` otherwise).
 
 One-time backfill from the box (dry run by default; prints the reports, sends nothing):
 
@@ -306,7 +308,7 @@ or "Moved back from the Mac app". The bot still leaves Save for later on its nex
 | `413` | Body over 256 bytes. |
 | `400` | Body is not exactly `{"saved": true}` or `{"saved": false}`. |
 | `404` | Unknown account or bot. |
-| `429` | Over 30 changes a minute (`Retry-After` set). |
+| `429` | Over 30 requests a minute with the control key (`Retry-After` set). Every authenticated request counts, including ones refused with `400`/`404`/`413`/`415`, so a broken client cannot loop. A wrong key never counts. |
 
 The Worker logs `{"evt":"saved","via":"app",…}` with the account, bot id and result, never
 the key.

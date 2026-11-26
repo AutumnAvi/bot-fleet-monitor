@@ -140,6 +140,20 @@ describe("Grok usage pusher", () => {
     expect(notes.some((n) => n.includes("folded"))).toBe(true);
   });
 
+  it("sends exactly 200 known bots without folding", () => {
+    const roster = Array.from({ length: MAX_GROK_BOTS }, (_, i) => ({ id: `bot-${i}`, name: `Bot ${i}`, account: "work" }));
+    const { body, notes } = buildGrokUsage(snapshot(roster.map((bot) => ({ botId: bot.id, share: 0.1 }))), roster);
+    expect(body.bots).toHaveLength(MAX_GROK_BOTS);
+    expect(body.bots.some((b) => b.botId === OTHER_ID)).toBe(false);
+    expect(notes).toEqual([]);
+  });
+
+  it("refuses a snapshot whose bot rows are all invalid (would wipe the breakdown)", () => {
+    expect(() => buildGrokUsage(snapshot([{ name: "Chief", share: "12" }, null]), ROSTER)).toThrow(SnapshotError);
+    // An empty list on purpose is still fine.
+    expect(buildGrokUsage(snapshot([]), ROSTER).body.bots).toEqual([]);
+  });
+
   it("truncates long roster names to the Worker's limit", () => {
     const long = "N".repeat(80);
     const { body } = buildGrokUsage(snapshot([{ botId: "x1", share: 1 }]), [{ id: "x1", name: long, account: "work" }]);
