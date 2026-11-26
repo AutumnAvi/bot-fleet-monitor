@@ -1,8 +1,13 @@
 # Bot Fleet for macOS
 
 A Dock app and a menu-bar item. Opening the app, or clicking its Dock icon, brings the
-dashboard window forward. The menu bar still shows how many bots need Avi, from
-`GET /api/v1/state`, and a short list. It does not message or wake a bot.
+Bot Fleet window forward. The menu bar shows how many bots need Avi and a short list.
+It does not message or wake a bot.
+
+The window is native SwiftUI. It reads `GET /api/v1/state` with `URLSession` every 20 seconds
+and draws Focus, Board and Feed itself. There is no web view, so a Screen Time web filter that
+blocks `*.workers.dev` in Safari and WebKit does not affect it (the same approach as Session
+Monitor). It needs only the dashboard URL and the read key, never the dashboard password.
 
 The read key lives in the login Keychain (`com.autumnavi.BotFleet` / `read-key`). The
 dashboard URL is not a secret; it is saved in preferences. Neither is in this repo.
@@ -27,13 +32,37 @@ also attached to the GitHub Release.
    connection, then Save and open. The key is written to the Keychain and is not shown again.
 7. If that server is still the v1 worker, the window says so: `/api/v1/state` returned 404.
    The menu bar starts counting after v2 is deployed. Until then there is no blank page.
-8. When the server answers, sign in with the dashboard password once. The web view keeps that cookie.
+
+## What the window shows
+
+- **Focus**: Needs my attention, one bot at a time, with its account tag (indigo Avi's Work,
+  green Admin), what it is doing, its recent feed lines and the coding session it started.
+  **Open chat · Avi's Work** / **Open chat · Admin** opens `grokbot://app/v1/agent?id=<botId>`;
+  the label names the account because the link opens whichever Grok Bot account is signed in.
+  Press **N** for the next bot. Up next, Save for later and every other bot by account follow.
+- **Board**: Kanban columns Needs me, Working, Saved for later and Idle & done.
+- **Feed**: the latest bot updates, with Needs me / Avi's Work / Admin filters.
+- **Coding sessions** (Claude Code, T3, Cursor) sit in their own small FYI panel with the bot
+  that started each one. They are never Needs my attention.
+- **Usage strip**: Grok Bot for both accounts (hover for the top bots, click for the per-bot breakdown), Claude
+  for Avi's Work and Admin (5-hour and weekly meters), Cursor's meters, Codex and API pools.
+- The account filter (All, Avi's Work, Admin) applies to every tab, and the feed then reads that
+  account's latest updates from the server. Times are Asia/Hebron.
+
+The app holds a read-only key, so it has no Save for later or Move back buttons; use the web
+dashboard or the bot for those. Full summaries and message copies stay in the chat; the window
+shows each bot's step, unread count and its lines in the feed.
+
+When a read fails, a banner says why (offline, key refused, server error) and the window keeps
+the last good data on screen with its time. It tries again every 20 seconds, and right away
+after the Mac wakes or when you press Retry or ⌘R.
 
 Optional: when a bot newly enters Needs my attention, macOS shows a notification. The first
 successful read is a baseline and does not notify. Allow notifications when macOS asks.
 
-The window opens at 1440×900. The Window menu has Wide and short (1920×700) and Tall and
-narrow (600×1400), which are the two reflowed layouts. You can also drag it to any size.
+The window opens at 1440×900. The Window size menu has Wide and short (1920×700) and Tall and
+narrow (600×1400): wide windows use three columns, narrow ones a single column. You can also
+drag it to any size. ⌘1, ⌘2 and ⌘3 switch tabs.
 
 Quit from the menu-bar item or the Dock. Clicking the Dock icon again brings the window back.
 
@@ -53,3 +82,16 @@ codesign --verify --deep --strict "build/Build/Products/Release/BotFleet.app"
 The checked-in source is `macos/App` and `macos/project.yml`. The Xcode project is generated
 and is not committed. CI does this and uploads `BotFleet.zip` (see
 `.github/workflows/macos.yml`).
+
+CI also renders the window from `macos/ci/sample-state.json` (a reply captured from a local
+worker with demo data, timestamps spread over a day) and uploads the PNGs as the
+**BotFleet-macOS-screenshots** artifact. To render one yourself:
+
+```sh
+APP=build/Build/Products/Release/BotFleet.app/Contents/MacOS/BotFleet
+"$APP" --snapshot ci/sample-state.json focus.png tab=focus width=1920 height=700
+"$APP" --snapshot ci/sample-state.json board.png tab=board width=600 height=1400 dark
+```
+
+Options: `tab=focus|board|feed`, `width=`, `height=`, `dark`, `filter=all|work|leaf`,
+`state=offline`, `part=grok` (the Grok breakdown popover). It reads only the file you pass.

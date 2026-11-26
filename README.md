@@ -19,7 +19,7 @@ sessions and usage. The dashboard never polls, pings or wakes a bot.
 | `src/lib/` | Auth (PBKDF2, constant-time compares, cookies), payload validation, sanitization, HTTP helpers, HTML pages. |
 | `src/shared/` | Types, limits, status model (stale timer), view model and Asia/Hebron time formatting, shared with the client. |
 | `client/` | Browser UI (vanilla TypeScript + CSS, bundled with esbuild into `dist/client/assets`). |
-| `macos/` | SwiftUI menu-bar app. The window is the dashboard; the menu counts Needs my attention. |
+| `macos/` | SwiftUI menu-bar app. A native window (Focus, Board, Feed) over `GET /api/v1/state`, no web view; the menu counts Needs my attention. |
 | `test/` | Vitest suites running inside the Workers runtime (`@cloudflare/vitest-plugin`). |
 | `docs/report.sh` | Reporting script for bots (reads URL/key from env). |
 | `docs/BOT-RULE.md` | The instruction text to add to each bot. |

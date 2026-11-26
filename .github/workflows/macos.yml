@@ -28,6 +28,37 @@ jobs:
             build > build.log 2>&1 && STATUS=0 || STATUS=$?
           grep -E "error:|BUILD (SUCCEEDED|FAILED)" build.log | head -80 || true
           test "$STATUS" = 0
+      - name: No web view in the app
+        working-directory: macos
+        run: |
+          if grep -rnE "import WebKit|WKWebView" App; then exit 1; fi
+          if otool -L build/Build/Products/Release/BotFleet.app/Contents/MacOS/BotFleet | grep -i webkit; then exit 1; fi
+      - name: Screenshots from the sample /api/v1/state reply
+        working-directory: macos
+        run: |
+          BIN="build/Build/Products/Release/BotFleet.app/Contents/MacOS/BotFleet"
+          mkdir -p shots
+          for TAB in focus board feed; do
+            "$BIN" --snapshot ci/sample-state.json "shots/$TAB.png" tab=$TAB width=1440 height=900 > "shots/$TAB.log"
+            "$BIN" --snapshot ci/sample-state.json "shots/$TAB-wide.png" tab=$TAB width=1920 height=700 > /dev/null
+            "$BIN" --snapshot ci/sample-state.json "shots/$TAB-tall.png" tab=$TAB width=600 height=1400 > /dev/null
+          done
+          "$BIN" --snapshot ci/sample-state.json shots/focus-dark.png tab=focus dark > /dev/null
+          "$BIN" --snapshot ci/sample-state.json shots/board-admin.png tab=board filter=leaf > /dev/null
+          "$BIN" --snapshot ci/sample-state.json shots/feed-offline.png tab=feed state=offline > /dev/null
+          "$BIN" --snapshot ci/sample-state.json shots/grok-popover.png part=grok > /dev/null
+          cat shots/focus.log
+          # Decoded the whole reply, and every bot landed in exactly one column.
+          grep -F 'STATE version=2 bots=36 attention=5 sessions=9 accounts=6 grok=2 activity=32' shots/focus.log
+          grep -F 'PARTITION attention=5 saved=1 working=7 idle=23 rows=36' shots/focus.log
+          grep -F "ATTENTION leaf | Leaf | Needs me | Open chat · Admin | grokbot://app/v1/agent?id=1eaf0000-0000-4000-8000-000000000001" shots/focus.log
+          grep -F "ATTENTION work | Comment Reply App | Stuck | Open chat · Avi's Work | grokbot://app/v1/agent?id=75096179-855f-4859-a4b8-918e0456d9ba" shots/focus.log
+          grep -F 'ATTENTION work | Event Kickoff PM | Stale' shots/focus.log
+          grep -F 'SESSION T3 | Reply drafts v3 | Failed | started by Comment Reply App' shots/focus.log
+          grep -F 'SESSION Claude | Claude CLI ~/scratch | Live | started by Unassigned' shots/focus.log
+          if grep -E '^ATTENTION .*(Click tracking|copy-audit|Reply drafts|Rollback test)' shots/focus.log; then exit 1; fi
+          ls -la shots
+          for f in shots/*.png; do test -s "$f"; done
       - name: Verify and zip
         working-directory: macos
         run: |
@@ -40,6 +71,12 @@ jobs:
           name: BotFleet-macOS
           path: macos/BotFleet.zip
           if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: BotFleet-macOS-screenshots
+          path: macos/shots/
+          if-no-files-found: ignore
 
   release:
     name: Publish GitHub Release
