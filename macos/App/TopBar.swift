@@ -2,7 +2,7 @@ import SwiftUI
 
 // The dark top bar. Read-only: its actions switch tab or filter, refresh, and open Settings.
 
-/// "Fleet · Focus", tabs, account filter, Hebron clock, Live/Offline, Refresh and Settings.
+/// "Fleet · Monitor", tabs, account filter, Hebron clock, Live/Offline, Refresh and Settings.
 struct TopBar: View {
     @ObservedObject var model: FleetModel
     let d: FleetDerived
@@ -36,24 +36,50 @@ struct TopBar: View {
         .environment(\.colorScheme, .dark)
     }
 
-    /// Segmented pill: Focus, Board, Feed on ⌘1, ⌘2, ⌘3.
+    /// Monitor as the one primary pill (⌘1), then Board, Feed and Later as quieter text (⌘2–⌘4).
+    /// Focus appears here only while it is open.
     private var tabs: some View {
-        HStack(spacing: 2) {
-            ForEach(Array(DashboardTab.allCases.enumerated()), id: \.element) { index, tab in
-                let selected = model.tab == tab
-                Button { model.tab = tab } label: {
-                    Text(tab.title).font(.system(size: 13, weight: selected ? .semibold : .medium))
-                        .foregroundStyle(selected ? Theme.bar : Theme.barText2)
-                        .padding(.horizontal, narrow ? 10 : 14).padding(.vertical, 5)
-                        .background(RoundedRectangle(cornerRadius: 8).fill(selected ? Color.white : Color.clear))
-                }
-                .buttonStyle(PlainRowButtonStyle())
-                .keyboardShortcut(KeyEquivalent(Character("\(index + 1)")), modifiers: .command)
-                .help(tab == .focus ? "Focus · \(d.attention.count) need you (⌘1)" : "\(tab.title) (⌘\(index + 1))")
+        HStack(spacing: narrow ? 0 : 2) {
+            tabButton(.monitor, primary: true, shortcut: "1")
+            ForEach(secondary, id: \.self) { tab in
+                tabButton(tab, primary: false, shortcut: DashboardTab.secondary.firstIndex(of: tab).map { "\($0 + 2)" })
             }
         }
-        .padding(3)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Theme.barRaised)).fixedSize()
+        .fixedSize()
+    }
+
+    private var secondary: [DashboardTab] {
+        model.tab == .focus ? [.focus] + DashboardTab.secondary : DashboardTab.secondary
+    }
+
+    private func tabButton(_ tab: DashboardTab, primary: Bool, shortcut: String?) -> some View {
+        let selected = model.tab == tab
+        let button = Button { model.tab = tab } label: {
+            Text(tab.title).font(.system(size: primary ? 13 : 12.5, weight: selected ? .semibold : (primary ? .medium : .regular)))
+                .foregroundStyle(selected ? Theme.bar : Theme.barText2.opacity(primary ? 1 : 0.85))
+                .padding(.horizontal, primary ? (narrow ? 10 : 14) : (narrow ? 6 : 9)).padding(.vertical, 5)
+                .background(RoundedRectangle(cornerRadius: 8).fill(selected ? Color.white : (primary ? Theme.barRaised : Color.clear)))
+        }
+        .buttonStyle(PlainRowButtonStyle())
+        .help(help(tab, shortcut: shortcut))
+        .padding(.trailing, primary ? (narrow ? 4 : 8) : 0)
+        return Group {
+            if let shortcut, let key = shortcut.first {
+                button.keyboardShortcut(KeyEquivalent(key), modifiers: .command)
+            } else {
+                button
+            }
+        }
+    }
+
+    private func help(_ tab: DashboardTab, shortcut: String?) -> String {
+        let key = shortcut.map { " (⌘\($0))" } ?? ""
+        switch tab {
+        case .monitor: return "Monitor · accounts, coding sessions, recently used\(key)"
+        case .focus: return "Focus · \(d.attention.count) need you"
+        case .later: return "Saved for later · \(d.saved.count)\(key)"
+        default: return "\(tab.title)\(key)"
+        }
     }
 
     /// Regular and wide: three outlined pills.

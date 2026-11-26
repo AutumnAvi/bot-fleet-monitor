@@ -28,7 +28,8 @@ struct DashboardView: View {
     }
 }
 
-/// Top bar, connection banner, usage bars, coding sessions strip, then the selected tab. Reflows by window width.
+/// Top bar, connection banner, switch banner, then Monitor; or the usage bars, coding sessions strip
+/// and the selected secondary tab. Reflows by window width.
 struct FleetWindow: View {
     @ObservedObject var model: FleetModel
     let state: FleetState
@@ -41,17 +42,27 @@ struct FleetWindow: View {
                 if let problem = model.problem {
                     StatusBanner(model: model, problem: problem)
                 }
-                UsageStrip(state: state, now: model.now)
-                SessionsStrip(d: d)
-                Rectangle().fill(Theme.line).frame(height: 1)
-                Group {
-                    switch model.tab {
-                    case .focus: FocusView(model: model, d: d)
-                    case .board: BoardView(model: model, d: d)
-                    case .feed: FeedView(model: model, d: d)
-                    }
+                if let banner = MonitorRules.banner(MonitorRules.accounts(state), now: model.now) {
+                    SwitchBannerView(banner: banner)
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                if model.tab == .monitor {
+                    MonitorView(model: model, d: d, state: state)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                } else {
+                    UsageStrip(state: state, now: model.now)
+                    SessionsStrip(d: d)
+                    Rectangle().fill(Theme.line).frame(height: 1)
+                    Group {
+                        switch model.tab {
+                        case .monitor: EmptyView()
+                        case .focus: FocusView(model: model, d: d)
+                        case .board: BoardView(model: model, d: d)
+                        case .feed: FeedView(model: model, d: d)
+                        case .later: LaterView(model: model, d: d)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                }
             }
             .environment(\.widthClass, WidthClass(width: geo.size.width))
             .overlay(alignment: .bottom) { SaveToastView(model: model) }
