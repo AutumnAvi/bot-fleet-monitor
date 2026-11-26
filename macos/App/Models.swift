@@ -126,6 +126,11 @@ struct SessionHelper: Decodable, Hashable {
     var step: Int?
     var steps: Int?
     var runtimeSec: Int?
+    /// Source id a review-stack reviewer runs on (claudeAdmin, codex, cursor). Nil: the session's own.
+    var account: String?
+    /// Review-stack round, e.g. 2 of 5.
+    var round: Int?
+    var rounds: Int?
 }
 
 struct SessionCI: Decodable, Hashable {

@@ -63,6 +63,9 @@ struct MonitorView: View {
                     if index > 0 { Rectangle().fill(Theme.line).frame(height: 1) }
                     MonitorSessionRow(session: session, owner: MonitorRules.shortName(d.ownerName(of: session)),
                                       now: d.now)
+                    ForEach(Array(MonitorRules.helperRows(session).enumerated()), id: \.offset) { _, helper in
+                        HelperRow(helper: helper)
+                    }
                 }
             }
         }
@@ -181,7 +184,7 @@ private struct AccountTile: View {
             if row {
                 HStack(alignment: .top, spacing: 12) {
                     VStack(alignment: .leading, spacing: 3) {
-                        HStack(spacing: 6) { title; useFirst }
+                        HStack(spacing: 6) { title; activeBubble; useFirst }
                         numbers
                         details
                     }
@@ -197,13 +200,36 @@ private struct AccountTile: View {
                     ViewThatFits(in: .horizontal) {
                         HStack(spacing: 6) {
                             title.fixedSize()
+                            activeBubble
                             useFirst
                             Spacer(minLength: 4)
                             SignalChip(signal: card.signal)
                         }
                         VStack(alignment: .leading, spacing: 3) {
                             HStack(spacing: 6) {
+                                title.fixedSize()
+                                activeBubble
+                                Spacer(minLength: 4)
+                                SignalChip(signal: card.signal)
+                            }
+                            useFirst
+                        }
+                        // With a bubble, keep the whole name and drop the chip under it instead.
+                        VStack(alignment: .leading, spacing: 3) {
+                            HStack(spacing: 6) {
+                                title.fixedSize()
+                                activeBubble
+                                Spacer(minLength: 0)
+                            }
+                            HStack(spacing: 6) {
+                                SignalChip(signal: card.signal)
+                                useFirst
+                            }
+                        }
+                        VStack(alignment: .leading, spacing: 3) {
+                            HStack(spacing: 6) {
                                 title
+                                activeBubble
                                 Spacer(minLength: 4)
                                 SignalChip(signal: card.signal)
                             }
@@ -227,23 +253,39 @@ private struct AccountTile: View {
             .foregroundStyle(Theme.text).lineLimit(1)
     }
 
+    @ViewBuilder private var activeBubble: some View {
+        if card.active.total > 0 { ActiveBubble(count: card.active) }
+    }
+
     @ViewBuilder private var useFirst: some View {
         if card.useFirst { Pill(text: "Use first", tone: .indigo, uppercase: true) }
     }
 
-    /// "6% weekly", or Cursor's "3.9% Models   22.9% Other".
+    /// "6% weekly", or Cursor's "3.9% Models   22.9% Other". Cursor's two numbers stack (Models over
+    /// Other) when the tile is too narrow for both on one line, so neither is ever cut off.
     private var numbers: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 14) {
-            ForEach(Array(card.headline.enumerated()), id: \.offset) { _, meter in
-                HStack(alignment: .firstTextBaseline, spacing: 4) {
-                    Text(meter.used.map(MonitorRules.pct) ?? (meter.noLimit ? "No limit" : "–"))
-                        .font(.system(size: 24, weight: .bold)).monospacedDigit()
-                        .foregroundStyle(meter.signal == .ok ? Theme.text : Theme.fg(meter.signal.tone))
-                        .lineLimit(1).minimumScaleFactor(0.7)
-                    Text(meter.label == "Weekly" ? "weekly" : meter.label).font(Theme.F.small)
-                        .foregroundStyle(Theme.text3).lineLimit(1)
-                }
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .firstTextBaseline, spacing: 14) {
+                ForEach(Array(card.headline.enumerated()), id: \.offset) { _, meter in headline(meter).fixedSize() }
             }
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(Array(card.headline.enumerated()), id: \.offset) { _, meter in headline(meter).fixedSize() }
+            }
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(Array(card.headline.enumerated()), id: \.offset) { _, meter in headline(meter) }
+            }
+        }
+    }
+
+    /// One big number and its small label: "33.2%  Other".
+    private func headline(_ meter: MonitorMeter) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 4) {
+            Text(meter.used.map(MonitorRules.pct) ?? (meter.noLimit ? "No limit" : "–"))
+                .font(.system(size: 24, weight: .bold)).monospacedDigit()
+                .foregroundStyle(meter.signal == .ok ? Theme.text : Theme.fg(meter.signal.tone))
+                .lineLimit(1).minimumScaleFactor(0.7)
+            Text(meter.label == "Weekly" ? "weekly" : meter.label).font(Theme.F.small)
+                .foregroundStyle(Theme.text3).lineLimit(1)
         }
     }
 
@@ -293,7 +335,21 @@ private struct AccountTile: View {
             let reset = m.resetAt.map { " · resets \(Fmt.full($0))" } ?? ""
             return "\(m.label == "used" ? "Used" : m.label): \(value)\(reset)"
         }
-        return ([card.name + " · " + card.signal.label] + lines).joined(separator: "\n")
+        let active = card.active.total > 0 ? [card.active.help] : []
+        return ([card.name + " · " + card.signal.label] + active + lines).joined(separator: "\n")
+    }
+}
+
+/// Green bubble after an account name: how many builds and reviewers run on it now. Hidden at 0.
+struct ActiveBubble: View {
+    let count: ActiveCount
+    var body: some View {
+        Text("\(count.total)").font(.system(size: 11, weight: .bold)).monospacedDigit().foregroundStyle(.white)
+            .padding(.horizontal, 5).frame(minWidth: 18, minHeight: 18)
+            .background(Capsule().fill(Theme.fill(.green)))
+            .fixedSize()
+            .help(count.help)
+            .accessibilityLabel(count.help)
     }
 }
 
@@ -395,6 +451,37 @@ private struct MonitorSessionRow: View {
         if let repo = session.repo { parts.append(session.branch.map { "\(repo) · \($0)" } ?? repo) }
         if let model = session.model { parts.append(session.effort.map { "\(model) · \($0)" } ?? model) }
         return parts.joined(separator: "\n")
+    }
+}
+
+/// One helper under its session (the main agent is the session row above): a reviewer's name,
+/// "Reviewer · Admin Claude · r2/5", status and run time. Indented under the session's badge.
+private struct HelperRow: View {
+    let helper: SessionHelper
+
+    var body: some View {
+        let (label, tone) = MonitorRules.helperStatus(helper)
+        let line = MonitorRules.helperLine(helper)
+        HStack(spacing: 10) {
+            Circle().fill(Theme.fill(tone)).frame(width: 7, height: 7)
+                .frame(width: 30, alignment: .center)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(MonitorRules.helperName(helper)).font(Theme.F.smallBold).foregroundStyle(Theme.text)
+                    .lineLimit(1).truncationMode(.tail)
+                if !line.isEmpty {
+                    Text(line).font(Theme.F.caption).foregroundStyle(Theme.text3).lineLimit(1).truncationMode(.tail)
+                }
+            }
+            .layoutPriority(1)
+            Spacer(minLength: 6)
+            Pill(text: label, tone: tone)
+            Text(Fmt.hoursMinutes(Double(helper.runtimeSec ?? 0) * 1000)).font(Theme.F.small).monospacedDigit()
+                .foregroundStyle(Theme.text3).lineLimit(1).frame(minWidth: 58, alignment: .trailing).fixedSize()
+        }
+        .padding(.leading, 30).padding(.trailing, 16).padding(.vertical, 4)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .overlay(alignment: .leading) { Rectangle().fill(Theme.line).frame(width: 2).padding(.leading, 31) }
+        .help([helper.name, line, label].filter { !$0.isEmpty }.joined(separator: "\n"))
     }
 }
 

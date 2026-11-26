@@ -657,6 +657,8 @@ function helperRow(helper: SessionHelper): HTMLElement {
     h(
       "div",
       { class: "l2" },
+      helper.round ? h("span", {}, `r${helper.round}/${helper.rounds ?? "?"}`) : null,
+      helper.account ? h("span", {}, usageDisplayName({ id: helper.account, label: helper.account })) : null,
       progress === null ? null : h("span", {}, `${helper.step}/${helper.steps}`),
       h("span", { class: "rt" }, helperRuntime(helper.runtimeSec)),
     ),

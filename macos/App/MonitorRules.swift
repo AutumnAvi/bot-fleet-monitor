@@ -61,6 +61,8 @@ struct AccountCard: Hashable {
     var others: [MonitorMeter]
     var resetAt: Double?
     var useFirst = false
+    /// Running coding sessions plus running review-stack reviewers on this account (the green bubble).
+    var active = ActiveCount()
 
     var meters: [MonitorMeter] { headline + others }
     var signal: UsageSignal { meters.map(\.signal).max() ?? .ok }
@@ -126,6 +128,8 @@ enum MonitorRules {
         if let g = state.grok.first(where: { $0.account == .leaf }) { cards.append(grok(g, kind: .grokAdmin, name: "Grok · Admin", now: now)) }
         cards = cards.filter { card in card.meters.contains { $0.used != nil || $0.noLimit } }
         if let i = useFirstIndex(cards) { cards[i].useFirst = true }
+        let counts = activeCounts(state.sessions)
+        for i in cards.indices { cards[i].active = counts[cards[i].kind] ?? ActiveCount() }
         return cards
     }
 
@@ -295,14 +299,16 @@ enum MonitorRules {
     }
 
     /// The usage pool by the names on the accounts strip.
-    static func poolName(_ s: CodingSession) -> String {
-        switch s.account {
+    static func poolName(_ s: CodingSession) -> String { poolName(s.account) }
+
+    static func poolName(_ account: String) -> String {
+        switch account {
         case "claudeMax": return "Main Claude"
         case "claudeAdmin": return "Admin Claude"
         case "cursor": return "Cursor"
         case "cursor-cloud": return "Cursor cloud"
         case "codex": return "Codex"
-        default: return s.account.hasPrefix("claudeApi") ? "API" : s.account
+        default: return account.hasPrefix("claudeApi") ? "API" : account
         }
     }
 
@@ -376,5 +382,119 @@ enum MonitorRules {
         if let ended { return (Sessions.statusLabel(ended), sessionTone(ended)) }
         if row.state == .working { return ("Live", .green) }
         return ("Idle", .gray)
+    }
+}
+
+/// The green bubble on an account: builds (live sessions) and reviewers running on it.
+struct ActiveCount: Hashable {
+    var builds = 0
+    var reviewers = 0
+    var total: Int { builds + reviewers }
+    /// "1 build · 2 reviewers running".
+    var help: String {
+        var parts: [String] = []
+        if builds > 0 { parts.append("\(builds) build\(builds == 1 ? "" : "s")") }
+        if reviewers > 0 { parts.append("\(reviewers) reviewer\(reviewers == 1 ? "" : "s")") }
+        return parts.joined(separator: " · ") + " running"
+    }
+}
+
+/// Review-stack helpers: the main agent stays on the session row; each helper gets its own row.
+extension MonitorRules {
+    /// The account card a source id belongs to. Cursor cloud uses the same Cursor plan.
+    static func cardKind(_ source: String) -> AccountCard.Kind? {
+        switch source {
+        case "claudeMax": return .mainClaude
+        case "claudeAdmin": return .adminClaude
+        case "cursor", "cursor-cloud": return .cursor
+        case "codex": return .codex
+        default: return nil
+        }
+    }
+
+    /// Live sessions (in review waits on its reviewers, so it does not count) plus running helpers
+    /// that run on an account of their own, under a session that is still active.
+    static func activeCounts(_ sessions: [CodingSession]) -> [AccountCard.Kind: ActiveCount] {
+        var counts: [AccountCard.Kind: ActiveCount] = [:]
+        for s in sessions {
+            if Sessions.displayStatus(s) == "running", let kind = cardKind(s.account) {
+                counts[kind, default: ActiveCount()].builds += 1
+            }
+            guard Sessions.isLive(s) else { continue }
+            for h in s.helperList where h.status == "running" {
+                if let source = helperAccount(h), let kind = cardKind(source) {
+                    counts[kind, default: ActiveCount()].reviewers += 1
+                }
+            }
+        }
+        return counts
+    }
+
+    static func isReviewer(_ h: SessionHelper) -> Bool {
+        let n = h.name.lowercased().trimmingCharacters(in: .whitespaces)
+        return h.round != nil || n.hasPrefix("review") || n.hasPrefix("[review")
+    }
+
+    /// The pushed account, or a reviewer's usual home by name (Opus on Admin, GPT/Codex on Codex,
+    /// Gemini and Grok on Cursor) for collectors that predate the field.
+    static func helperAccount(_ h: SessionHelper) -> String? {
+        if let a = h.account, !a.isEmpty { return a }
+        guard isReviewer(h) else { return nil }
+        let n = h.name.lowercased()
+        if n.contains("opus") || n.contains("claude") { return "claudeAdmin" }
+        if n.contains("codex") || n.contains("gpt") { return "codex" }
+        if n.contains("gemini") || n.contains("grok") || n.contains("cursor") { return "cursor" }
+        return nil
+    }
+
+    /// (round, of) from the fields, or from the name: "Review: Grok · r2/5" or "[review r2/5] Grok".
+    static func helperRound(_ h: SessionHelper) -> (Int, Int?)? {
+        if let r = h.round, r > 0 { return (r, h.rounds.flatMap { $0 > 0 ? $0 : nil }) }
+        guard isReviewer(h), let range = h.name.range(of: #"\br(\d+)/(\d+)\b"#, options: .regularExpression) else { return nil }
+        let parts = h.name[range].dropFirst().split(separator: "/").map { Int($0.trimmingCharacters(in: .whitespaces)) }
+        guard parts.count == 2, let r = parts[0], r > 0 else { return nil }
+        return (r, parts[1])
+    }
+
+    /// "Review: Grok · r1/5" or "[review r1/5] Grok" → "Grok".
+    static func helperName(_ h: SessionHelper) -> String {
+        guard isReviewer(h) else { return h.name }
+        var name = h.name
+        if let range = name.range(of: #"\s*·?\s*\br\d+/\d+\s*$"#, options: .regularExpression) { name.removeSubrange(range) }
+        if let range = name.range(of: #"^\s*\[review\s+r\d+/\d+\]\s*"#, options: [.regularExpression, .caseInsensitive]) {
+            name.removeSubrange(range)
+        }
+        if let range = name.range(of: #"^\s*review\s*:\s*"#, options: [.regularExpression, .caseInsensitive]) {
+            name.removeSubrange(range)
+        }
+        name = name.trimmingCharacters(in: .whitespaces)
+        return name.isEmpty ? h.name : name
+    }
+
+    /// "Admin Claude · r2/5 · 2/3 steps".
+    static func helperLine(_ h: SessionHelper) -> String {
+        var parts: [String] = []
+        if isReviewer(h) { parts.append("Reviewer") }
+        if let source = helperAccount(h) { parts.append(poolName(source)) }
+        if let (r, of) = helperRound(h) { parts.append("r\(r)/\(of.map(String.init) ?? "?")") }
+        if let step = h.step, let steps = h.steps, steps > 0 { parts.append("\(step)/\(steps) steps") }
+        return parts.joined(separator: " · ")
+    }
+
+    static func helperStatus(_ h: SessionHelper) -> (String, Tone) {
+        switch h.status {
+        case "running": return ("Running", .green)
+        case "in_review": return ("In review", .green)
+        case "finished": return ("Done", .gray)
+        case "paused_limit": return ("Paused · limit", .amber)
+        case "failed": return ("Failed", .red)
+        case "aborted": return ("Aborted", .red)
+        default: return ("Stopped", .gray)
+        }
+    }
+
+    /// Helper rows show only under an active session; an ended one keeps its single row.
+    static func helperRows(_ s: CodingSession) -> [SessionHelper] {
+        Sessions.isActive(s) ? s.helperList : []
     }
 }
