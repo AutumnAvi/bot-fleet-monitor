@@ -992,6 +992,70 @@
       "attentionReason": null
     },
     {
+      "id": "t3-pricing-page",
+      "tool": "t3",
+      "title": "Pricing page redesign",
+      "status": "in_review",
+      "step": 5,
+      "steps": 6,
+      "helpers": [
+        {
+          "name": "Review: Opus",
+          "status": "finished",
+          "step": null,
+          "steps": null,
+          "runtimeSec": 262,
+          "account": "claudeAdmin",
+          "round": 2,
+          "rounds": 5
+        },
+        {
+          "name": "Review: Codex · r2/5",
+          "status": "finished",
+          "step": null,
+          "steps": null,
+          "runtimeSec": 305
+        },
+        {
+          "name": "Review: Gemini Neon",
+          "status": "running",
+          "step": 3,
+          "steps": 4,
+          "runtimeSec": 440,
+          "account": "cursor",
+          "round": 2,
+          "rounds": 5
+        },
+        {
+          "name": "Review: Grok",
+          "status": "running",
+          "step": null,
+          "steps": null,
+          "runtimeSec": 418,
+          "account": "cursor",
+          "round": 2,
+          "rounds": 5
+        }
+      ],
+      "startedAt": 1795599312000,
+      "updatedAt": 1795603692000,
+      "finishedAt": null,
+      "limitReset": null,
+      "ownerBotId": "62d33226-2c18-4a18-9c78-044fd80eb5d0",
+      "ownerName": null,
+      "account": "claudeMax",
+      "prUrl": null,
+      "ci": null,
+      "repo": "example/site",
+      "branch": "feat/pricing-page",
+      "agentUrl": null,
+      "model": "claude-sonnet",
+      "effort": "high",
+      "alive": true,
+      "lastSeenAt": 1795603752000,
+      "attentionReason": null
+    },
+    {
       "id": "cc-copy-audit",
       "tool": "claude",
       "title": "copy-audit",

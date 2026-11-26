@@ -166,6 +166,20 @@ describe("sessions ingest", () => {
       helpers: [{ name: "lint", runtimeSec: 40 }],
     });
   });
+
+  it("keeps a reviewer helper's account and round, and rejects a bad one", async () => {
+    const reviewer = { name: "Review: Grok", status: "running", step: null, steps: null, runtimeSec: 90, account: "cursor", round: 2, rounds: 5 };
+    const ok = await ingest("sessions", { sessions: [session({ status: "in_review", helpers: [reviewer] })] }, SESSIONS_KEY);
+    expect(ok.status).toBe(200);
+    const body = await getJson<StateResponse>("/api/v1/state", await sessionCookie());
+    expect(body.sessions[0]?.helpers[0]).toMatchObject({ account: "cursor", round: 2, rounds: 5 });
+    const plain = parseSessionsPayload({ sessions: [session()] }).sessions[0]?.helpers[0];
+    expect(plain).toMatchObject({ account: null, round: null, rounds: null });
+    const badAccount = { sessions: [session({ helpers: [{ ...reviewer, account: "9 bad" }] })] };
+    expect((await ingest("sessions", badAccount, SESSIONS_KEY)).status).toBe(400);
+    const badRound = { sessions: [session({ helpers: [{ ...reviewer, round: -1 }] })] };
+    expect((await ingest("sessions", badRound, SESSIONS_KEY)).status).toBe(400);
+  });
 });
 
 describe("usage and grok plan", () => {

@@ -122,6 +122,11 @@ export interface SessionHelper {
   step: number | null;
   steps: number | null;
   runtimeSec: number;
+  /** Source id the helper runs on (a review-stack reviewer: claudeAdmin, codex, cursor). Null when it shares the session's. */
+  account?: string | null;
+  /** Review-stack round, e.g. 1 of 5. Null for helpers that are not reviewers. */
+  round?: number | null;
+  rounds?: number | null;
 }
 
 export interface SessionCi {

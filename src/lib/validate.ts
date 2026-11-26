@@ -225,7 +225,7 @@ const SESSION_FIELDS = [
   "attentionReason",
 ] as const;
 
-const HELPER_FIELDS = ["name", "status", "step", "steps", "runtimeSec"] as const;
+const HELPER_FIELDS = ["name", "status", "step", "steps", "runtimeSec", "account", "round", "rounds"] as const;
 const CI_FIELDS = ["state", "url"] as const;
 const ACCOUNT_FIELDS = [
   "id",
@@ -424,6 +424,12 @@ function parseHelper(raw: unknown, index: number): SessionHelper {
     step: optionalCount(obj, "step", 100_000),
     steps: optionalCount(obj, "steps", 100_000),
     runtimeSec: count(obj.runtimeSec, "runtimeSec", 10_000_000),
+    account:
+      obj.account === undefined || obj.account === null
+        ? null
+        : sourceId(requireString(obj, "account"), LIMITS.poolIdChars, "account"),
+    round: optionalCount(obj, "round", 100),
+    rounds: optionalCount(obj, "rounds", 100),
   };
 }
 

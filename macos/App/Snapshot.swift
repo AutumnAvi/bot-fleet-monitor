@@ -136,7 +136,7 @@ enum Snapshot {
                 return "\(m.label) \(value)"
             }
             let reset = card.resetAt.map { MonitorRules.resetText($0, now: d.now) } ?? "-"
-            print("ACCOUNT \(card.name) | \(numbers.joined(separator: ", ")) | \(card.signal.label) | resets \(reset)\(card.useFirst ? " | Use first" : "")")
+            print("ACCOUNT \(card.name) | \(numbers.joined(separator: ", ")) | \(card.signal.label) | resets \(reset)\(card.useFirst ? " | Use first" : "") | active=\(card.active.total) (\(card.active.builds) builds, \(card.active.reviewers) reviewers)")
         }
         print("ACCOUNTS \(MonitorRules.headerText(cards))")
         print("BANNER \(MonitorRules.banner(cards, now: d.now)?.text ?? "none")")
@@ -145,6 +145,9 @@ enum Snapshot {
         for s in sessions {
             let runtime = MonitorRules.runtime(s, now: d.now)
             print("MSESSION \(Sessions.toolLabel(s)) | \(Sessions.title(s, helpers: false)) | \(Sessions.statusLabel(s)) | \(MonitorRules.shortName(d.ownerName(of: s))) | \(MonitorRules.poolName(s)) | \(runtime)")
+            for h in MonitorRules.helperRows(s) {
+                print("  MHELPER \(MonitorRules.helperName(h)) | \(MonitorRules.helperLine(h)) | \(MonitorRules.helperStatus(h).0) | \(Fmt.hoursMinutes(Double(h.runtimeSec ?? 0) * 1000))")
+            }
         }
         for bot in MonitorRules.recentBots(d) {
             print("RECENT \(MonitorRules.shortName(bot.row.bot.name)) | \(bot.status)\(bot.needsYou ? " | needs you" : "") | \(Fmt.age(bot.lastAt, now: d.now)) | \(bot.line)")

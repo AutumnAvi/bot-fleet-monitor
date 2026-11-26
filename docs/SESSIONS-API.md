@@ -57,7 +57,9 @@ Auth: `Authorization: Bearer <INGEST_KEY_SESSIONS>`. Body cap 256 KB, at most 20
       "step": 4,
       "steps": 6,
       "helpers": [
-        { "name": "lint", "status": "running", "step": 1, "steps": 2, "runtimeSec": 40 }
+        { "name": "lint", "status": "running", "step": 1, "steps": 2, "runtimeSec": 40 },
+        { "name": "Review: Grok", "status": "running", "step": null, "steps": null, "runtimeSec": 95,
+          "account": "cursor", "round": 1, "rounds": 5 }
       ],
       "startedAt": 1764000000000,
       "updatedAt": 1764003600000,
@@ -90,7 +92,7 @@ Auth: `Authorization: Bearer <INGEST_KEY_SESSIONS>`. Body cap 256 KB, at most 20
 | `alive` | Required boolean. A `running` session with `alive: false` is shown as stalled. That is process liveness, not a quiet timer. `paused_limit` and terminal statuses are not rewritten. |
 | `lastSeenAt` | Required. Unix milliseconds (seconds and ISO-8601 also accepted). |
 | `step`, `steps` | Optional integers 0–100000, or null. |
-| `helpers` | Optional array, at most 20. Each row is `{name, status, step, steps, runtimeSec}`. `status` uses the same enum. `runtimeSec` is a non-negative integer. The UI shows the main session first and each helper as its own row, collapsed until opened. Omitted means `[]`. |
+| `helpers` | Optional array, at most 20. Each row is `{name, status, step, steps, runtimeSec, account?, round?, rounds?}`. `status` uses the same enum. `runtimeSec` is a non-negative integer. `account` is the source id a review-stack reviewer runs on (`claudeAdmin`, `codex`, `cursor`), same rule as the session `account`; omit it or send `null` for helpers on the session's own account. `round`/`rounds` are integers 0–100 (review round 1 of 5 is `round: 1, rounds: 5`), or null. The UI shows the main session first and each helper as its own row. The Mac app's account badge counts running helpers that carry an `account`. Omitted means `[]`. |
 | `startedAt`, `updatedAt` | Required timestamps. |
 | `finishedAt` | Optional timestamp. |
 | `limitReset` | Optional timestamp. Shown on a `paused_limit` row (↻ time). |
