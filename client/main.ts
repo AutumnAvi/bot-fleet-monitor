@@ -9,7 +9,9 @@ import {
   openLabel,
   openUrl,
   toRow,
-  activityText,
+  activityDetail,
+  activityLabel,
+  visibleActivity,
   type AccountFilter,
   type BotRowView,
 } from "../src/shared/fleet-view";
@@ -1234,12 +1236,13 @@ function feedItems(): ActivityItem[] {
   const first = state.data?.activity.items ?? [];
   const seen = new Set<number>();
   const items = [...first, ...state.olderActivity].filter((item) => !seen.has(item.seq) && seen.add(item.seq));
-  return items.filter((item) => {
+  const filtered = items.filter((item) => {
     if (!accountMatches(item.account, state.account)) return false;
     if (state.feedFilter === "work" || state.feedFilter === "leaf") return item.account === state.feedFilter;
     if (state.feedFilter === "needs") return item.kind === "waiting_user" || item.kind === "error" || item.kind === "message";
     return true;
   });
+  return visibleActivity(filtered);
 }
 
 function timeline(items: ActivityItem[]): HTMLElement[] {
@@ -1267,10 +1270,10 @@ function timeline(items: ActivityItem[]): HTMLElement[] {
             { class: "l" },
             h("b", {}, item.botName),
             accountTag(item.account),
-            h("span", { class: `tag ${tagForKind(item.kind)}` }, kindLabel(item.kind)),
+            h("span", { class: `tag ${tagForKind(item.kind)}` }, activityLabel(item.kind)),
             h("span", { class: "tm" }, `${formatClock(item.at, clock)} (Hebron)`),
           ),
-          h("p", {}, activityText(item)),
+          ...detailLine(item),
         ),
       ),
     );
@@ -1298,29 +1301,9 @@ function tagForKind(kind: ActivityItem["kind"]): string {
   }
 }
 
-function kindLabel(kind: ActivityItem["kind"]): string {
-  switch (kind) {
-    case "waiting_user":
-      return "Needs me";
-    case "error":
-      return "Stuck";
-    case "working":
-      return "Working";
-    case "done":
-      return "Done";
-    case "saved":
-      return "Saved for later";
-    case "message":
-      return "Message";
-    case "avi_replied":
-      return "You replied";
-    case "summary":
-      return "Summary";
-    case "unsaved":
-      return "Back";
-    case "idle":
-      return "Idle";
-  }
+function detailLine(item: ActivityItem): HTMLElement[] {
+  const detail = activityDetail(item);
+  return detail === null ? [] : [h("p", {}, detail)];
 }
 
 function accountSummary(): HTMLElement[] {
