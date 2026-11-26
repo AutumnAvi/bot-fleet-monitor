@@ -173,6 +173,7 @@ Body cap 64 KB, at most 200 bots.
   "account": "work",
   "pctUsed": 41,
   "resetAt": 1764300000000,
+  "asOf": 1764290000000,
   "bots": [
     { "botId": "b0642d5e-4aaf-41e7-9c15-637f06e15398", "name": "Chief", "share": 22, "routinesShare": 4 }
   ]
@@ -183,6 +184,14 @@ Body cap 64 KB, at most 200 bots.
 share that is routines. The dashboard sorts by `share` and hides the list until the Grok bar
 is hovered or tapped. A bot whose `routinesShare` is at least half of `share` is drawn as
 "mostly routines". `resetAt` may be null but the field is required.
+
+`asOf` is optional: when the numbers were read from Grok Bot's usage report (ms, seconds or
+ISO-8601). The Worker caps it at the receive time and uses the receive time when it is
+missing. Each `grok[]` row in `/api/v1/state` has `account`, `pctUsed`, `resetAt`,
+`reportedAt` (receive time), `asOf` and `bots`; show "as of <asOf>".
+
+Nothing in the Worker fetches this. `scripts/push-grok-usage.mjs` builds the body from a
+snapshot file and posts it; who runs it and when is in `docs/USAGE.md`.
 
 ## Bot avatar (on `POST /ingest/v1/status`)
 
