@@ -1,9 +1,12 @@
 #!/usr/bin/env node
 // Generates the dashboard password (+ its PBKDF2 hash), the ingest write keys
-// (work, Admin/leaf, sessions) and the read-only key into a private directory
-// OUTSIDE the repo. Files are mode 600. Values are never printed; only file names are.
+// (work, Admin/leaf, sessions), the read-only key and the Mac app's control key
+// into a private directory OUTSIDE the repo. Files are mode 600. Values are never
+// printed; only file names are.
 //
 //   node scripts/gen-secrets.mjs --dir /path/outside/repo [--force] [--iterations 25000]
+//   node scripts/gen-secrets.mjs --dir /path/outside/repo --only control-key
+//     (adds one key file next to existing ones; refuses to overwrite it without --force)
 
 import { realpathSync } from "node:fs";
 import { chmod, stat, writeFile } from "node:fs/promises";
@@ -19,6 +22,7 @@ function arg(name) {
 const dir = arg("--dir");
 const force = process.argv.includes("--force");
 const iterations = Number(arg("--iterations") ?? DEFAULT_ITERATIONS);
+const only = arg("--only");
 
 if (!dir) {
   console.error("usage: node scripts/gen-secrets.mjs --dir <private dir outside the repo> [--force] [--iterations N]");
@@ -47,15 +51,24 @@ const files = {
   "ingest-key-leaf": generateKey("bfl"),
   "ingest-key-sessions": generateKey("bfs"),
   "read-key": generateKey("bfr"),
+  "control-key": generateKey("bfc"),
 };
 
-for (const [name, value] of Object.entries(files)) {
+// --only writes a single key file. The password and its hash always go together.
+const KEY_FILES = ["ingest-key-work", "ingest-key-leaf", "ingest-key-sessions", "read-key", "control-key"];
+if (only !== undefined && !KEY_FILES.includes(only)) {
+  console.error(`--only must be one of: ${KEY_FILES.join(", ")}`);
+  process.exit(2);
+}
+const selected = only === undefined ? Object.entries(files) : Object.entries(files).filter(([name]) => name === only);
+
+for (const [name, value] of selected) {
   const path = join(target, name);
   try {
     await writeFile(path, `${value}\n`, { mode: 0o600, flag: force ? "w" : "wx" });
   } catch (err) {
     if (err && err.code === "EEXIST") {
-      console.error(`${path} already exists; not overwriting (use --force to rotate everything).`);
+      console.error(`${path} already exists; not overwriting (use --force to ${only === undefined ? "rotate everything" : "rotate it"}).`);
       process.exit(1);
     }
     throw err;
