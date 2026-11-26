@@ -4,22 +4,42 @@ import SwiftUI
 
 // MARK: Usage strip
 
-/// Grok (both accounts), then Claude, Cursor, Codex and API pools, in equal-width rows with hairlines.
+/// Always on top of every tab: the two Grok bars first, then Claude, Cursor, Codex and API pools in
+/// one compact row that stays hidden until some of them have reported.
 struct UsageStrip: View {
     let state: FleetState
     let now: Double
     @Environment(\.widthClass) private var width
 
     var body: some View {
-        let grid = Self.rows(UsageTile.all(state, now: now), maxColumns: width == .narrow ? 2 : width == .regular ? 4 : 10)
+        let tiles = UsageTile.all(state, now: now)
         VStack(spacing: 0) {
-            ForEach(Array(grid.enumerated()), id: \.offset) { index, row in
+            HStack(spacing: 0) {
+                GrokBar(account: .work, usage: grok(.work), now: now)
+                Rectangle().fill(Theme.line).frame(width: 1)
+                GrokBar(account: .leaf, usage: grok(.leaf), now: now)
+            }
+            .fixedSize(horizontal: false, vertical: true)
+            if !tiles.isEmpty {
+                Rectangle().fill(Theme.line).frame(height: 1)
+                grid(tiles)
+            }
+        }
+        .frame(maxWidth: .infinity).background(Theme.surface)
+    }
+
+    private func grok(_ account: FleetAccount) -> GrokUsage? { state.grok.first { $0.account == account } }
+
+    private func grid(_ tiles: [UsageTile]) -> some View {
+        let rows = Self.rows(tiles, maxColumns: width == .narrow ? 2 : width == .regular ? 4 : 10)
+        return VStack(spacing: 0) {
+            ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
                 if index > 0 { Rectangle().fill(Theme.line).frame(height: 1) }
                 HStack(spacing: 0) {
                     ForEach(Array(row.enumerated()), id: \.offset) { column, tile in
                         if column > 0 { Rectangle().fill(Theme.line).frame(width: 1) }
                         if let tile {
-                            UsageTileView(tile: tile, now: now)
+                            UsageTileView(tile: tile)
                         } else {
                             Theme.surface.frame(maxWidth: .infinity, maxHeight: .infinity)
                         }
@@ -29,7 +49,6 @@ struct UsageStrip: View {
                 .fixedSize(horizontal: false, vertical: true)
             }
         }
-        .frame(maxWidth: .infinity).background(Theme.surface)
     }
 
     /// rows = ceil(n / max), columns = ceil(n / rows). A short last row is padded with empty cells.
@@ -42,6 +61,76 @@ struct UsageStrip: View {
             while row.count < columns { row.append(nil) }
             return row
         }
+    }
+}
+
+/// "⚡ Grok · Avi's Work  41%   as of 3:49 PM" over a bar, or one muted "no data yet" line.
+/// Hovering (or clicking) opens the per-bot breakdown.
+private struct GrokBar: View {
+    let account: FleetAccount
+    let usage: GrokUsage?
+    let now: Double
+    @Environment(\.widthClass) private var width
+    @State private var show = false
+    @State private var overBar = false
+    @State private var overPopover = false
+
+    var body: some View {
+        if let usage, !usage.bots.isEmpty {
+            content
+                .contentShape(Rectangle())
+                .onHover { inside in
+                    overBar = inside
+                    if inside { show = true } else { closeSoon() }
+                }
+                .onTapGesture { show.toggle() }
+                .popover(isPresented: $show, arrowEdge: .bottom) {
+                    GrokBreakdown(account: account, usage: usage, now: now)
+                        .onHover { inside in
+                            overPopover = inside
+                            if !inside { closeSoon() }
+                        }
+                }
+                .accessibilityAddTraits(.isButton)
+                .accessibilityHint("Shows the per-bot breakdown")
+        } else {
+            content
+        }
+    }
+
+    /// Leaving the bar for the popover (or back) keeps it open.
+    private func closeSoon() {
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            if !overBar && !overPopover { show = false }
+        }
+    }
+
+    private var content: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text("⚡ Grok · \(account.label)").font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Theme.fg(.sky)).lineLimit(1).layoutPriority(1)
+                if let usage {
+                    Text(Fmt.percent(usage.pctUsed)).font(Theme.F.big).monospacedDigit()
+                        .foregroundStyle(usage.pctUsed >= 80 ? Theme.fg(.red) : Theme.text).fixedSize()
+                }
+                Spacer(minLength: 6)
+                if let at = usage?.readAt {
+                    Text("as of \(Fmt.clockOrDate(at, now: now))").font(Theme.F.caption)
+                        .foregroundStyle(Theme.text3).lineLimit(1).help(Fmt.full(at))
+                }
+            }
+            if let usage {
+                Bar(fraction: usage.pctUsed / 100, tone: usage.pctUsed >= 80 ? .red : .sky, height: 5)
+            } else {
+                Text("no data yet").font(Theme.F.small).foregroundStyle(Theme.text3).lineLimit(1)
+            }
+        }
+        .padding(.horizontal, width == .narrow ? 12 : 16)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(Theme.tint(.sky))
     }
 }
 
@@ -66,24 +155,10 @@ private struct UsageTile {
     var tone: Tone = .gray
     var meters: [UsageMeterLine] = []
     var notes: [String] = []
-    var grokAccount: FleetAccount?
-    var grokUsage: GrokUsage?
 
+    /// Claude, Cursor, Codex and API tiles that have a number. Empty until something reports.
     static func all(_ state: FleetState, now: Double) -> [UsageTile] {
-        let grok = FleetAccount.allCases.map { account in
-            grokTile(account, usage: state.grok.first { $0.account == account }, now: now)
-        }
-        return grok + Usage.sorted(state.accounts).map { usageTile($0, now: now) }
-    }
-
-    static func grokTile(_ account: FleetAccount, usage: GrokUsage?, now: Double) -> UsageTile {
-        var t = UsageTile(title: "⚡ Grok · \(account.label)", titleTone: .sky, tone: .sky,
-                          grokAccount: account, grokUsage: usage)
-        guard let usage else { return t }
-        t.big = Fmt.percent(usage.pctUsed)
-        t.caption = usage.resetAt.map { "used · resets \(Fmt.reset($0, now: now))" } ?? "used"
-        t.fraction = usage.pctUsed / 100
-        return t
+        Usage.sorted(state.accounts).map { usageTile($0, now: now) }.filter { $0.big != "–" }
     }
 
     static func usageTile(_ a: UsageAccount, now: Double) -> UsageTile {
@@ -196,24 +271,10 @@ private struct UsageTile {
 
 private struct UsageTileView: View {
     let tile: UsageTile
-    let now: Double
     @Environment(\.widthClass) private var width
-    @State private var showBreakdown = false
 
     var body: some View {
-        if let account = tile.grokAccount {
-            // A click opens the per-bot breakdown; hovering shows the top bots as a tooltip.
-            card
-                .contentShape(Rectangle())
-                .onTapGesture { showBreakdown.toggle() }
-                .popover(isPresented: $showBreakdown, arrowEdge: .bottom) {
-                    GrokBreakdown(account: account, usage: tile.grokUsage, now: now)
-                }
-                .help(grokHelp)
-                .accessibilityAddTraits(.isButton)
-        } else {
-            card.help(([tile.title] + tile.resets + tile.meters.map(\.help) + tile.notes).joined(separator: "\n"))
-        }
+        card.help(([tile.title] + tile.resets + tile.meters.map(\.help) + tile.notes).joined(separator: "\n"))
     }
 
     /// One compact tile at every width: title and reset, then number, caption and bar on one line.
@@ -234,7 +295,7 @@ private struct UsageTileView: View {
         .padding(.horizontal, width == .narrow ? 10 : 12)
         .padding(.vertical, 8)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(tile.grokAccount == nil ? Theme.surface : Theme.tint(.sky))
+        .background(Theme.surface)
     }
 
     @ViewBuilder private var bars: some View {
@@ -247,13 +308,6 @@ private struct UsageTileView: View {
         } else {
             Bar(fraction: tile.fraction, tone: tile.tone, height: 4)
         }
-    }
-
-    /// "Top: Chief 22%, Dropbox Rebuild PM 15%, … Click for every bot."
-    private var grokHelp: String {
-        guard let usage = tile.grokUsage, !usage.bots.isEmpty else { return "Click for the per-bot breakdown" }
-        let top = Usage.grokTop(usage).top.prefix(3).map { "\($0.name) \(Fmt.percent($0.share))" }
-        return "Top: \(top.joined(separator: ", ")). Click for every bot."
     }
 
     private func header(_ reset: String?) -> some View {
@@ -304,8 +358,8 @@ struct GrokBreakdown: View {
                 legendItem(Theme.fill(.sky), "chats & tasks")
                 legendItem(Self.routinesColor, "mostly routines")
                 Spacer(minLength: 8)
-                if let reported = usage?.reportedAt {
-                    Text("Reported \(Fmt.clockOrDate(reported, now: now))")
+                if let at = usage?.readAt {
+                    Text("as of \(Fmt.clockOrDate(at, now: now))")
                         .font(Theme.F.caption).foregroundStyle(Theme.text3)
                 }
             }

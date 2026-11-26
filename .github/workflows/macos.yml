@@ -47,6 +47,7 @@ jobs:
           "$BIN" --snapshot ci/sample-state.json shots/board-admin.png tab=board filter=leaf > /dev/null
           "$BIN" --snapshot ci/sample-state.json shots/feed-offline.png tab=feed state=offline > /dev/null
           "$BIN" --snapshot ci/sample-state.json shots/grok-popover.png part=grok > /dev/null
+          "$BIN" --snapshot ci/sample-state.json shots/focus-nodata.png tab=focus nodata > /dev/null
           cat shots/focus.log
           # Decoded the whole reply, and every bot landed in exactly one column.
           grep -F 'STATE version=2 bots=36 attention=5 sessions=9 accounts=6 grok=2 activity=36' shots/focus.log

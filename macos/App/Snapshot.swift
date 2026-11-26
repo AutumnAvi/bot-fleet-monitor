@@ -3,7 +3,7 @@ import SwiftUI
 
 /// CI preview, same idea as Session Monitor's:
 /// `<app> --snapshot state.json out.png [tab=focus|board|feed] [width=1440] [height=900] [dark]
-///  [state=offline] [filter=all|work|leaf] [part=grok]`
+///  [state=offline] [filter=all|work|leaf] [part=grok] [nodata]`
 /// renders the real window from a saved GET /api/v1/state reply, prints what it decoded, and exits.
 /// The clock is frozen at the sample's `now`, so ages are the same on every run. No network.
 @MainActor
@@ -18,12 +18,18 @@ enum Snapshot {
             print("no sample at \(sample)")
             return false
         }
-        let state: FleetState
+        var state: FleetState
         do {
             state = try JSONDecoder().decode(FleetState.self, from: data)
         } catch {
             print("decode failed: \(error)")
             return false
+        }
+        // `nodata`: nothing pushed yet for usage or coding sessions, as on a fresh deploy.
+        if options.contains("nodata") {
+            state.grok = []
+            state.accounts = []
+            state.sessions = []
         }
         let tab = DashboardTab(rawValue: option("tab") ?? "") ?? .focus
         let filter = AccountFilter(rawValue: option("filter") ?? "") ?? .all
