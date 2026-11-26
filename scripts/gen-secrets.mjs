@@ -56,7 +56,7 @@ const files = {
 
 // --only writes a single key file. The password and its hash always go together.
 const KEY_FILES = ["ingest-key-work", "ingest-key-leaf", "ingest-key-sessions", "read-key", "control-key"];
-if (only !== undefined && !KEY_FILES.includes(only)) {
+if (process.argv.includes("--only") && (only === undefined || !KEY_FILES.includes(only))) {
   console.error(`--only must be one of: ${KEY_FILES.join(", ")}`);
   process.exit(2);
 }
