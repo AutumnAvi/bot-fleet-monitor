@@ -96,7 +96,7 @@ struct FleetDerived {
         activity = Rules.visibleActivity(page)
         var latest: [String: String] = [:]
         for item in newestFirst where item.kind == "summary" && latest[item.botKey] == nil {
-            if let text = item.detail, !text.isEmpty { latest[item.botKey] = text }
+            if let text = item.detail.map(Rules.clean), !text.isEmpty { latest[item.botKey] = text }
         }
         summaries = latest
     }
@@ -229,11 +229,23 @@ enum Sessions {
 
     /// Title plus "(cloud)" and the helper count, as on the web.
     static func title(_ s: CodingSession) -> String {
+        let name = cleanTitle(s.title)
         let isCloud = s.tool == "cursor-cloud" || s.account == "cursor-cloud"
-        let cloud = isCloud && s.title.range(of: "cloud", options: .caseInsensitive) == nil ? " (cloud)" : ""
+        let cloud = isCloud && name.range(of: "cloud", options: .caseInsensitive) == nil ? " (cloud)" : ""
         let n = s.helperList.count
         let helpers = n > 0 ? " · \(n) helper\(n == 1 ? "" : "s")" : ""
-        return s.title + cloud + helpers
+        return name + cloud + helpers
+    }
+
+    /// "[Chief] Bot Fleet build - Nov 25 2026" → "Bot Fleet build". The owner and the day are shown
+    /// elsewhere on the row. A title that is only a tag stays as it is.
+    static func cleanTitle(_ raw: String) -> String {
+        var out = Rules.clean(raw)
+        if let range = out.range(of: #"^\[[^\]]{1,60}\]\s*"#, options: .regularExpression) { out.removeSubrange(range) }
+        let date = #"\s+[-–—]\s+(\d{4}-\d{2}-\d{2}|[A-Z][a-z]{2,8}\.? \d{1,2}(,? \d{4})?)$"#
+        if let range = out.range(of: date, options: .regularExpression) { out.removeSubrange(range) }
+        out = out.trimmingCharacters(in: .whitespaces)
+        return out.isEmpty ? raw : out
     }
 
     /// 0–1, or nil when the collector didn't send a step count.
