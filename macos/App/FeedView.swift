@@ -383,25 +383,43 @@ private struct FeedSavedStrip: View {
     let row: BotRow
     let now: Double
 
+    /// One line when it fits; otherwise the buttons drop to a second line so the name stays readable.
     var body: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "bookmark.fill").font(.system(size: 12)).foregroundStyle(Theme.fg(.violet))
-            Text("Saved:").font(Theme.F.bodyBold).foregroundStyle(Theme.text).fixedSize()
-            Text(verbatim: "\(row.bot.name) · \(row.step)")
-                .font(Theme.F.body).foregroundStyle(Theme.fg(.violet)).lineLimit(1).truncationMode(.tail)
-            AccountTag(account: row.account)
-            Spacer(minLength: 8)
-            OpenChatButton(bot: row.bot, compact: true)
-            SaveForLaterButton(model: model, bot: row.bot)
-            if let savedAt = row.bot.savedAt {
-                Text(verbatim: "since \(Fmt.clockOrDate(savedAt, now: now))")
-                    .font(Theme.F.caption).foregroundStyle(Theme.text3).lineLimit(1).fixedSize()
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 8) {
+                lead(fixed: true)
+                Spacer(minLength: 8)
+                actions
+            }
+            VStack(alignment: .leading, spacing: 8) {
+                lead(fixed: false)
+                HStack(spacing: 8) { actions }
             }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
         .card(fill: Theme.tint(.violet).opacity(0.35), dashed: true)
         .help(row.step)
+    }
+
+    private func lead(fixed: Bool) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "bookmark.fill").font(.system(size: 12)).foregroundStyle(Theme.fg(.violet))
+            BotSymbol(bot: row.bot)
+            Text(verbatim: "\(row.bot.name) · \(row.step)")
+                .font(Theme.F.body).foregroundStyle(Theme.fg(.violet)).lineLimit(1).truncationMode(.tail)
+                .fixedSize(horizontal: fixed, vertical: false)
+            AccountTag(account: row.account)
+        }
+    }
+
+    @ViewBuilder private var actions: some View {
+        OpenChatButton(bot: row.bot, compact: true)
+        SaveForLaterButton(model: model, bot: row.bot)
+        if let savedAt = row.bot.savedAt {
+            Text(verbatim: "since \(Fmt.clockOrDate(savedAt, now: now))")
+                .font(Theme.F.caption).foregroundStyle(Theme.text3).lineLimit(1).fixedSize()
+        }
     }
 }
 
