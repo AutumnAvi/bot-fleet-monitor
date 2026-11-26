@@ -207,6 +207,8 @@ export const RATE_LIMITS = {
   ingestPerBotPerMinute: 30,
   /** Login attempts per client IP per 15 minutes. */
   loginPerIpPer15Min: 10,
+  /** Save-for-later changes per minute from the Mac app (control key). */
+  controlSavedPerMinute: 30,
 } as const;
 
 export type EventKind =

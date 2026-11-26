@@ -260,6 +260,59 @@ async function handleSaved(request: Request, env: Env, match: RegExpExecArray): 
   return json({ ok: true, saved });
 }
 
+const APP_SAVED_PATH = /^\/api\/v1\/bots\/([^/]+)\/([^/]+)\/saved$/;
+const APP_SAVED_BODY_BYTES = 256;
+
+/**
+ * POST /api/v1/bots/<account>/<id>/saved with {"saved": true|false}: the Mac app's
+ * "Later" / "Move back" button. Bearer CONTROL_KEY only (no cookie, no other key).
+ * It only flips Save for later through setSaved(); it never contacts the bot.
+ */
+async function handleAppSaved(request: Request, env: Env, match: RegExpExecArray): Promise<Response> {
+  if (request.method !== "POST") return methodNotAllowed("POST");
+  const role = await classifyKey(bearerToken(request), env);
+  if (role === null) {
+    log({ evt: "saved", via: "app", result: "unauthorized", status: 401 });
+    return apiError(401, "unauthorized", "Missing or invalid control key", { "WWW-Authenticate": "Bearer" });
+  }
+  if (role !== "control") {
+    log({ evt: "saved", via: "app", result: "forbidden", status: 403 });
+    return apiError(403, "forbidden", "This key cannot change Save for later");
+  }
+  const limit = await store(env).hitRateLimit("control:saved", RATE_LIMITS.controlSavedPerMinute, 60_000);
+  if (!limit.ok) {
+    log({ evt: "saved", via: "app", result: "rate_limited", status: 429 });
+    return apiError(429, "rate_limited", "Too many changes; wait and try again.", {
+      "Retry-After": String(limit.retryAfterSec),
+    });
+  }
+  let saved: boolean;
+  try {
+    const { raw } = await readJson(request, APP_SAVED_BODY_BYTES);
+    if (typeof raw !== "object" || raw === null || Array.isArray(raw)) throw new ClientError(400, "invalid_payload", "Body must be a JSON object");
+    const keys = Object.keys(raw);
+    const value = (raw as { saved?: unknown }).saved;
+    if (keys.length !== 1 || typeof value !== "boolean") {
+      throw new ClientError(400, "invalid_payload", 'Body must be {"saved": true} or {"saved": false}');
+    }
+    saved = value;
+  } catch (err) {
+    if (err instanceof ClientError) {
+      log({ evt: "saved", via: "app", result: err.code, status: err.status });
+      return apiError(err.status, err.code, err.message);
+    }
+    throw err;
+  }
+  const ref = botRef(match[1], match[2]);
+  const found = ref !== null && (await store(env).setSaved(ref.account, ref.id, saved, "app"));
+  if (!ref || !found) {
+    log({ evt: "saved", via: "app", result: "not_found", status: 404 });
+    return apiError(404, "not_found", "No such bot");
+  }
+  log({ evt: "saved", via: "app", account: ref.account, bot: ref.id, saved });
+  return json({ ok: true, saved });
+}
+
 function activityAccountOf(url: URL): Account | null | Response {
   const accountParam = url.searchParams.get("account");
   if (accountParam === null || accountParam === "both") return null;
@@ -270,6 +323,8 @@ function activityAccountOf(url: URL): Account | null | Response {
 }
 
 async function handleApi(request: Request, env: Env, url: URL): Promise<Response> {
+  const appSavedMatch = APP_SAVED_PATH.exec(url.pathname);
+  if (appSavedMatch) return handleAppSaved(request, env, appSavedMatch);
   const savedMatch = SAVED_PATH.exec(url.pathname);
   if (savedMatch) return handleSaved(request, env, savedMatch);
   if (request.method !== "GET") return methodNotAllowed("GET");

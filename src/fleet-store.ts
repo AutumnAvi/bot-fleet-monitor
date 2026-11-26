@@ -522,8 +522,12 @@ export class FleetStore extends DurableObject<Env> {
     this.addEvent(account, botId, savedAt === null ? "unsaved" : "saved", detail, now);
   }
 
-  /** Dashboard "Save for later" / "Move back" button. Returns false for an unknown bot. */
-  setSaved(account: Account, id: string, saved: boolean): boolean {
+  /**
+   * "Save for later" / "Move back" from the dashboard button or the Mac app.
+   * Returns false for an unknown bot.
+   */
+  setSaved(account: Account, id: string, saved: boolean, via: "dashboard" | "app" = "dashboard"): boolean {
+    const where = via === "app" ? "the Mac app" : "the dashboard";
     const now = Date.now();
     let found = false;
     this.ctx.storage.transactionSync(() => {
@@ -532,8 +536,8 @@ export class FleetStore extends DurableObject<Env> {
         .toArray()[0];
       if (!row) return;
       found = true;
-      if (saved && row.saved_at === null) this.writeSaved(account, id, now, now, "Saved from the dashboard");
-      if (!saved && row.saved_at !== null) this.writeSaved(account, id, null, now, "Moved back from the dashboard");
+      if (saved && row.saved_at === null) this.writeSaved(account, id, now, now, `Saved from ${where}`);
+      if (!saved && row.saved_at !== null) this.writeSaved(account, id, null, now, `Moved back from ${where}`);
     });
     return found;
   }
