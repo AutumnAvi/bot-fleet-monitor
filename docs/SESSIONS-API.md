@@ -2,7 +2,8 @@
 
 Bots do not call these. `docs/BOT-RULE.md` is unchanged for bot reports. A collector on the
 box pushes coding sessions and pool usage with its own key. Each Grok Bot account pushes its
-own plan usage with the key it already has. The Mac app reads with a key that cannot write.
+own plan usage with the key it already has. The Mac app reads with a key that cannot write,
+and can hold a second key whose only power is Save for later / Move back.
 
 Nothing here wakes or messages a bot. The Worker still has no cron and makes no outbound calls.
 
@@ -21,8 +22,9 @@ node scripts/gen-secrets.mjs --dir /workspace/bot-fleet-monitor-secrets
 | `ingest-key-leaf` | `INGEST_KEY_LEAF` | Admin bots, and that account's Grok-usage push | Bot reports for `leaf`, `POST /ingest/v1/grok-usage` with `"account":"leaf"` |
 | `ingest-key-sessions` | `INGEST_KEY_SESSIONS` | The box collector | `POST /ingest/v1/sessions` and `POST /ingest/v1/usage` only |
 | `read-key` | `READ_KEY` | The Mac app | `GET /api/v1/state` only |
+| `control-key` | `CONTROL_KEY` | The Mac app (optional second key) | `POST /api/v1/bots/<account>/<id>/saved` only |
 
-Prefixes are `bfw_`, `bfl_`, `bfs_`, `bfr_` plus 32 random bytes. A key shorter than 32
+Prefixes are `bfw_`, `bfl_`, `bfs_`, `bfr_`, `bfc_` plus 32 random bytes. A key shorter than 32
 characters is treated as missing. If any two configured secrets are the same string, every
 bearer token is rejected. Comparison is SHA-256, constant time. Keys are never logged and
 never stored in the Durable Object.
@@ -30,6 +32,8 @@ never stored in the Durable Object.
 A wrong key is `401` and the body does not echo the token. A bot key cannot read state, post
 sessions, or post usage. The sessions key cannot post a bot report or Grok usage. The read
 key cannot post anything and cannot call `/api/fleet`, `/api/activity` or `/api/bots/…`.
+The control key cannot read state, post reports, sessions or usage, or call any dashboard
+route; it only flips Save for later. No other key can use the control route (`403`).
 
 Send a `User-Agent` header. Cloudflare blocks Python's default `Python-urllib` before the
 Worker sees it.
@@ -220,6 +224,41 @@ session is never an attention item. `accountLabel` is `Avi's Work` or `Admin`.
 
 `401` when the cookie is missing and the bearer token is not the read key. The dashboard's
 Save for later route stays cookie-only and same-origin.
+
+## POST /api/v1/bots/{account}/{id}/saved
+
+The Mac app's **Later** / **Move back** button. Same effect as the dashboard button: it only
+changes Save for later on the dashboard. It never messages, wakes or calls the bot.
+
+Auth: `Authorization: Bearer <CONTROL_KEY>` only. A cookie does not work here, and the control
+key works nowhere else. `<account>` is `work` or `leaf`; `<id>` is the bot id (URL-encoded).
+
+```http
+POST /api/v1/bots/work/b0642d5e-4aaf-41e7-9c15-637f06e15398/saved
+Authorization: Bearer bfc_…
+Content-Type: application/json
+
+{"saved": true}
+```
+
+`200 {"ok":true,"saved":true}`. Saving an already-saved bot (or moving back one that is not
+saved) is `200` and changes nothing. A change adds one feed event: "Saved from the Mac app"
+or "Moved back from the Mac app". The bot still leaves Save for later on its next
+`waiting_user`/`error` report or when Avi replies.
+
+| Status | When |
+| --- | --- |
+| `401` | No bearer token, or not a configured key (`WWW-Authenticate: Bearer`). |
+| `403` | A valid key that is not the control key (read, work, leaf, sessions). |
+| `405` | Not `POST`. |
+| `415` | `Content-Type` is not `application/json`. |
+| `413` | Body over 256 bytes. |
+| `400` | Body is not exactly `{"saved": true}` or `{"saved": false}`. |
+| `404` | Unknown account or bot. |
+| `429` | Over 30 changes a minute (`Retry-After` set). |
+
+The Worker logs `{"evt":"saved","via":"app",…}` with the account, bot id and result, never
+the key.
 
 ## Collector sketch
 
