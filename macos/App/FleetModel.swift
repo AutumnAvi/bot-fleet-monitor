@@ -34,6 +34,26 @@ enum FetchProblem: Equatable {
     }
 }
 
+/// Why a Save for later change did not go through. Shown in the toast after the change is undone.
+enum SaveFailure: Error, Equatable {
+    case noKey, badURL, refused, notControl, notFound, rateLimited
+    case server(Int)
+    case offline(String)
+
+    var message: String {
+        switch self {
+        case .noKey: return "No control key in Settings."
+        case .badURL: return "The dashboard URL is not usable."
+        case .refused: return "Fleet refused the control key."
+        case .notControl: return "That key can't change Save for later."
+        case .notFound: return "Fleet doesn't know this bot."
+        case .rateLimited: return "Too many changes. Try again in a minute."
+        case .server(let code): return "Fleet answered HTTP \(code)."
+        case .offline(let why): return why
+        }
+    }
+}
+
 enum DashboardTab: String, CaseIterable, Hashable {
     case focus, board, feed
     var title: String { rawValue.capitalized }
@@ -226,6 +246,37 @@ final class FleetModel: ObservableObject {
             return .failure(.offline(Self.describe(error)), nil)
         } catch {
             return .failure(.offline("Can't reach Fleet."), nil)
+        }
+    }
+
+    /// POST /api/v1/bots/<account>/<id>/saved with {"saved": …}, signed with the control key. The
+    /// only write the app makes; the read key is never sent here. Nil means Fleet accepted it.
+    func sendSaved(account: FleetAccount, botId: String, saved: Bool) async -> SaveFailure? {
+        guard let base = BaseURL.saved, let endpoint = BaseURL.savedURL(base, account: account, botId: botId) else {
+            return .badURL
+        }
+        guard let key = ControlKey.load() else { return .noKey }
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue("BotFleet-Mac/2.1", forHTTPHeaderField: "User-Agent")
+        request.httpBody = Data((saved ? #"{"saved":true}"# : #"{"saved":false}"#).utf8)
+        do {
+            let (_, response) = try await session.data(for: request)
+            switch (response as? HTTPURLResponse)?.statusCode ?? 0 {
+            case 200: return nil
+            case 401: return .refused
+            case 403: return .notControl
+            case 404: return .notFound
+            case 429: return .rateLimited
+            case let code: return .server(code)
+            }
+        } catch let error as URLError {
+            return .offline(Self.describe(error))
+        } catch {
+            return .offline("Can't reach Fleet.")
         }
     }
 

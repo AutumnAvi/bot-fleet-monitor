@@ -101,6 +101,16 @@ enum BaseURL {
         return nil
     }
 
+    /// POST target for Save for later: /api/v1/bots/<account>/<id>/saved, the id percent-encoded.
+    static func savedURL(_ base: URL, account: FleetAccount, botId: String) -> URL? {
+        var allowed = CharacterSet.alphanumerics
+        allowed.insert(charactersIn: "-._~")
+        guard !botId.isEmpty, let id = botId.addingPercentEncoding(withAllowedCharacters: allowed) else { return nil }
+        var root = base.absoluteString
+        if root.hasSuffix("/") { root.removeLast() }
+        return URL(string: "\(root)/api/v1/bots/\(account.rawValue)/\(id)/saved")
+    }
+
     /// `?account=` narrows only the activity page (the newest 40 events) to one account, as the web
     /// does; bots, sessions, usage and attention are always both accounts. The server has no "all".
     static func stateURL(_ base: URL, account: AccountFilter = .all) -> URL? {
