@@ -50,6 +50,8 @@ final class FleetModel: ObservableObject {
     /// Server time of the last good read.
     @Published var lastSuccess: Date?
     @Published var configured: Bool
+    /// A control key is in the Keychain, so Later and Move back are shown.
+    @Published var canSave: Bool
     @Published var showSettings = false
     /// Last HTTP status from /api/v1/state. 404 means the server is not v2 yet.
     @Published var httpStatus: Int?
@@ -89,6 +91,7 @@ final class FleetModel: ObservableObject {
 
     init() {
         configured = BaseURL.saved != nil && KeychainStore.load() != nil
+        canSave = ControlKey.load() != nil
         tab = DashboardTab(rawValue: UserDefaults.standard.string(forKey: "botfleet.tab") ?? "") ?? .focus
         filter = AccountFilter(rawValue: UserDefaults.standard.string(forKey: "botfleet.filter") ?? "") ?? .all
         let center = NSWorkspace.shared.notificationCenter
@@ -105,6 +108,7 @@ final class FleetModel: ObservableObject {
     /// For CI snapshots: fixed data, frozen clock, no network.
     init(preview: FleetState, tab: DashboardTab, filter: AccountFilter = .all, problem: FetchProblem? = nil) {
         configured = true
+        canSave = true
         self.tab = tab
         self.filter = filter
         state = preview
@@ -267,8 +271,11 @@ final class FleetModel: ObservableObject {
     }
 
     /// Settings pointed the app at another server: drop the old server's data and notification
-    /// baseline so nothing from it is shown as "last good" Fleet data.
+    /// baseline so nothing from it is shown as "last good" Fleet data, and its control key so it is
+    /// never sent anywhere else.
     func forgetServerData() {
+        ControlKey.delete()
+        canSave = false
         generation += 1
         state = nil
         problem = nil
