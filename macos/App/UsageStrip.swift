@@ -31,7 +31,8 @@ struct UsageStrip: View {
     private func grok(_ account: FleetAccount) -> GrokUsage? { state.grok.first { $0.account == account } }
 
     private func grid(_ tiles: [UsageTile]) -> some View {
-        let rows = Self.rows(tiles, maxColumns: width == .narrow ? 2 : width == .regular ? 4 : 10)
+        // One row of compact tiles; narrow windows wrap at three.
+        let rows = Self.rows(tiles, maxColumns: width == .narrow ? 3 : 10)
         return VStack(spacing: 0) {
             ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
                 if index > 0 { Rectangle().fill(Theme.line).frame(height: 1) }
@@ -106,6 +107,14 @@ private struct GrokBar: View {
         }
     }
 
+    /// "as of 12:29 PM": when Grok Bot's usage report was read.
+    @ViewBuilder private var asOf: some View {
+        if let at = usage?.readAt {
+            Text("as of \(Fmt.clockOrDate(at, now: now))").font(Theme.F.caption)
+                .foregroundStyle(Theme.text3).lineLimit(1).help(Fmt.full(at))
+        }
+    }
+
     private var content: some View {
         VStack(alignment: .leading, spacing: 5) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -116,13 +125,11 @@ private struct GrokBar: View {
                         .foregroundStyle(usage.pctUsed >= 80 ? Theme.fg(.red) : Theme.text).fixedSize()
                 }
                 Spacer(minLength: 6)
-                if let at = usage?.readAt {
-                    Text("as of \(Fmt.clockOrDate(at, now: now))").font(Theme.F.caption)
-                        .foregroundStyle(Theme.text3).lineLimit(1).help(Fmt.full(at))
-                }
+                if width != .narrow { asOf }
             }
             if let usage {
                 Bar(fraction: usage.pctUsed / 100, tone: usage.pctUsed >= 80 ? .red : .sky, height: 5)
+                if width == .narrow { asOf }
             } else {
                 Text("no data yet").font(Theme.F.small).foregroundStyle(Theme.text3).lineLimit(1)
             }

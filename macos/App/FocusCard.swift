@@ -136,7 +136,8 @@ struct FocusCard: View {
             ForEach(Array(activity.prefix(3)), id: \.seq) { item in
                 activityBlock(item)
             }
-            if let at = row.bot.lastAviReplyAt {
+            // Unless a "You replied" row above already says it.
+            if let at = row.bot.lastAviReplyAt, !activity.prefix(3).contains(where: { $0.kind == "avi_replied" }) {
                 caption("You replied \(Fmt.pastClock(at, now: d.now))").help(Fmt.full(at))
             }
         }

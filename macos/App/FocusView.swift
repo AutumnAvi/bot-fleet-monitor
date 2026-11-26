@@ -232,7 +232,8 @@ struct FocusView: View {
                 Text("Everything else, by account").font(Theme.F.title).foregroundStyle(Theme.text)
                     .lineLimit(1).layoutPriority(1)
                 Spacer(minLength: 8)
-                Text("\(FocusText.plural(d.rows.count, "bot")) · \(FocusText.plural(liveSessions, "live coding session"))")
+                Text(liveSessions == 0 ? FocusText.plural(d.rows.count, "bot")
+                     : "\(FocusText.plural(d.rows.count, "bot")) · \(FocusText.plural(liveSessions, "live coding session"))")
                     .font(Theme.F.small).foregroundStyle(Theme.text2).lineLimit(1)
             }
             ForEach(d.accountsWithBots, id: \.self) { account in

@@ -13,8 +13,15 @@ struct SessionsStrip: View {
     static let windowMs: Double = 24 * 60 * 60 * 1000
 
     /// Active sessions, plus any that changed in the last 24 hours. Orphans only under All.
+    /// Sessions a known bot started come first; ones with no bot found follow.
     static func recent(_ d: FleetDerived) -> [CodingSession] {
-        Sessions.sorted((d.sessions + d.orphans).filter { Sessions.isActive($0) || d.now - $0.updatedAt < Self.windowMs })
+        let keep: (CodingSession) -> Bool = { Sessions.isActive($0) || d.now - $0.updatedAt < Self.windowMs }
+        return Sessions.sorted(d.sessions.filter(keep)) + Sessions.sorted(d.orphans.filter(keep))
+    }
+
+    /// A short title for a chip: at most `limit` characters, then "…".
+    static func short(_ title: String, limit: Int) -> String {
+        title.count <= limit ? title : String(title.prefix(limit - 1)).trimmingCharacters(in: .whitespaces) + "…"
     }
 
     private var chipLimit: Int { width == .narrow ? 1 : width == .regular ? 3 : 5 }
@@ -70,8 +77,8 @@ struct SessionsStrip: View {
     private func chip(_ s: CodingSession) -> some View {
         HStack(spacing: 5) {
             ToolBadge(session: s)
-            Text(s.title).font(Theme.F.small).foregroundStyle(Theme.text).lineLimit(1).truncationMode(.tail)
-                .frame(maxWidth: width == .narrow ? 150 : 180, alignment: .leading)
+            Text(Self.short(s.title, limit: width == .narrow ? 20 : 26))
+                .font(Theme.F.small).foregroundStyle(Theme.text).lineLimit(1)
             if let step = Sessions.stepText(s) {
                 Text(step).font(Theme.F.caption).monospacedDigit().foregroundStyle(Theme.fg(Sessions.tone(s))).fixedSize()
             }
