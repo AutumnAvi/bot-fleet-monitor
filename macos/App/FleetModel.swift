@@ -34,13 +34,44 @@ enum FetchProblem: Equatable {
     }
 }
 
+/// Why a Save for later change did not go through. Shown in the toast after the change is undone.
+enum SaveFailure: Error, Equatable {
+    case noKey, badURL, refused, notControl, notFound, rateLimited
+    case server(Int)
+    case offline(String)
+
+    var message: String {
+        switch self {
+        case .noKey: return "No control key in Settings."
+        case .badURL: return "The dashboard URL is not usable."
+        case .refused: return "Fleet refused the control key."
+        case .notControl: return "That key can't change Save for later."
+        case .notFound: return "Fleet doesn't know this bot."
+        case .rateLimited: return "Too many changes. Try again in a minute."
+        case .server(let code): return "Fleet answered HTTP \(code)."
+        case .offline(let why): return why
+        }
+    }
+}
+
+/// The toast under the window after Later or Move back: "Saved for later · Undo", or the error.
+struct SaveToast: Equatable {
+    let id = UUID()
+    var text: String
+    /// What Undo sends: the bot and the saved value to go back to. Nil when there is no Undo.
+    var undo: Bot?
+    var undoSaved = false
+    var isError = false
+}
+
 enum DashboardTab: String, CaseIterable, Hashable {
     case focus, board, feed
     var title: String { rawValue.capitalized }
 }
 
 /// Reads GET /api/v1/state with the read key every 20 seconds (URLSession only, no web view),
-/// plus right away on launch, wake and Refresh. It never writes and never messages a bot.
+/// plus right away on launch, wake and Refresh. It never messages a bot. Its only write is Save for
+/// later (`setSaved`), signed with the separate control key.
 @MainActor
 final class FleetModel: ObservableObject {
     static let pollSeconds: Double = 20
@@ -50,6 +81,8 @@ final class FleetModel: ObservableObject {
     /// Server time of the last good read.
     @Published var lastSuccess: Date?
     @Published var configured: Bool
+    /// A control key is in the Keychain, so Later and Move back are shown.
+    @Published var canSave: Bool
     @Published var showSettings = false
     /// Last HTTP status from /api/v1/state. 404 means the server is not v2 yet.
     @Published var httpStatus: Int?
@@ -65,6 +98,23 @@ final class FleetModel: ObservableObject {
     }
     /// The bot the Focus card shows (`account:id`). Nil means the first one that needs Avi.
     @Published var focusKey: String?
+    /// The Save for later toast, cleared after about 6 seconds.
+    @Published var toast: SaveToast?
+    /// Changes sent but not yet answered, per `account:id`. Re-applied to every read until Fleet
+    /// answers, so a poll in between never flips the bot back.
+    private struct PendingSave {
+        var saved: Bool
+        /// The newest change for this bot; only its answer settles the bot.
+        var token: Int
+        /// The last `savedAt` Fleet confirmed, which a failure goes back to.
+        var confirmed: Double?
+    }
+    private var pendingSaved: [String: PendingSave] = [:]
+    private var saveToken = 0
+    /// Bumped when the server or control key changes, so queued sends for the old one are dropped.
+    private var saveEpoch = 0
+    /// Sends run one after another, so Undo never overtakes the change it undoes.
+    private var saveChain: Task<Void, Never>?
     /// Ticks with every poll so ages and the header clock move even when nothing changed.
     @Published private(set) var tick = Date()
 
@@ -89,6 +139,7 @@ final class FleetModel: ObservableObject {
 
     init() {
         configured = BaseURL.saved != nil && KeychainStore.load() != nil
+        canSave = ControlKey.load() != nil
         tab = DashboardTab(rawValue: UserDefaults.standard.string(forKey: "botfleet.tab") ?? "") ?? .focus
         filter = AccountFilter(rawValue: UserDefaults.standard.string(forKey: "botfleet.filter") ?? "") ?? .all
         let center = NSWorkspace.shared.notificationCenter
@@ -105,6 +156,7 @@ final class FleetModel: ObservableObject {
     /// For CI snapshots: fixed data, frozen clock, no network.
     init(preview: FleetState, tab: DashboardTab, filter: AccountFilter = .all, problem: FetchProblem? = nil) {
         configured = true
+        canSave = true
         self.tab = tab
         self.filter = filter
         state = preview
@@ -175,9 +227,14 @@ final class FleetModel: ObservableObject {
         switch result {
         case .cancelled:
             return
-        case .success(let fresh, let code):
+        case .success(let reply, let code):
+            var fresh = reply
             httpStatus = code
             skewMs = fresh.now - Date().timeIntervalSince1970 * 1000
+            for (key, change) in pendingSaved {
+                let current = fresh.bots.first { $0.key == key }?.savedAt
+                fresh.applySaved(key: key, savedAt: change.saved ? (current ?? fresh.now) : nil)
+            }
             noteNewItems(fresh.attention)
             state = fresh
             problem = nil
@@ -225,6 +282,126 @@ final class FleetModel: ObservableObject {
         }
     }
 
+    /// Later (saved = true) or Move back (false): shown at once, sent with the control key, then
+    /// read back. On an error the bot goes back to where it was and the toast says why.
+    func setSaved(_ bot: Bot, saved: Bool, offerUndo: Bool = true) {
+        guard canSave, var current = state else { return }
+        let shown = current.bots.first { $0.key == bot.key }?.savedAt
+        // While an earlier change is unanswered, what Fleet confirmed is older than what is shown.
+        let confirmed: Double? = pendingSaved[bot.key].map { $0.confirmed } ?? shown
+        let at: Double? = saved ? now : nil
+        current.applySaved(key: bot.key, savedAt: at)
+        // A read already in flight predates this change; drop its reply.
+        generation += 1
+        state = current
+        // Moving back must not ring as a new "needs you".
+        if !saved { seen.insert(bot.key) }
+        saveToken += 1
+        let token = saveToken
+        pendingSaved[bot.key] = PendingSave(saved: saved, token: token, confirmed: confirmed)
+        show(SaveToast(text: saved ? "Saved for later" : "Moved back", undo: offerUndo ? bot : nil, undoSaved: !saved))
+        guard fixedNow == nil else { return }
+        let epoch = saveEpoch
+        let previous = saveChain
+        saveChain = Task { [weak self] in
+            await previous?.value
+            guard let self, self.saveEpoch == epoch, !Task.isCancelled else { return }
+            let failure = await self.sendSaved(account: bot.account, botId: bot.id, saved: saved)
+            // The server or key changed meanwhile: this answer belongs to the old one.
+            guard self.saveEpoch == epoch else { return }
+            guard let entry = self.pendingSaved[bot.key] else { return }
+            guard entry.token == token else {
+                // A newer change for this bot is queued; it settles the bot. Only remember what landed.
+                if failure == nil { self.pendingSaved[bot.key]?.confirmed = at }
+                return
+            }
+            self.pendingSaved[bot.key] = nil
+            if let failure {
+                if var current = self.state {
+                    current.applySaved(key: bot.key, savedAt: entry.confirmed)
+                    self.state = current
+                }
+                // Back in Needs my attention is not news.
+                if entry.confirmed == nil { self.seen.insert(bot.key) }
+                let verb = saved ? "save" : "move back"
+                self.show(SaveToast(text: "Couldn't \(verb) \(bot.name). \(failure.message)", isError: true))
+            }
+            self.poke()
+        }
+    }
+
+    /// New server or key: queued changes are not sent, unanswered ones are put back to what Fleet
+    /// confirmed, and the toast goes. The chain is kept so a later save still waits for a POST that
+    /// is already out; once it settles the app reads Fleet again.
+    func resetSaves() {
+        saveEpoch += 1
+        if var current = state {
+            for (key, entry) in pendingSaved {
+                current.applySaved(key: key, savedAt: entry.confirmed)
+                if entry.confirmed == nil { seen.insert(key) }
+            }
+            state = current
+        }
+        pendingSaved = [:]
+        toast = nil
+        let old = saveChain
+        saveChain = Task { [weak self] in
+            await old?.value
+            self?.poke()
+        }
+    }
+
+    /// Settings → Remove: no control key, so no buttons and nothing left to send.
+    func removeControlKey() {
+        ControlKey.delete()
+        canSave = false
+        resetSaves()
+    }
+
+    func undo(_ toast: SaveToast) {
+        guard let bot = toast.undo else { return }
+        setSaved(bot, saved: toast.undoSaved, offerUndo: false)
+    }
+
+    private func show(_ next: SaveToast) {
+        toast = next
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 6_000_000_000)
+            if self?.toast?.id == next.id { self?.toast = nil }
+        }
+    }
+
+    /// POST /api/v1/bots/<account>/<id>/saved with {"saved": …}, signed with the control key. The
+    /// only write the app makes; the read key is never sent here. Nil means Fleet accepted it.
+    func sendSaved(account: FleetAccount, botId: String, saved: Bool) async -> SaveFailure? {
+        guard let base = BaseURL.saved, let endpoint = BaseURL.savedURL(base, account: account, botId: botId) else {
+            return .badURL
+        }
+        guard let key = ControlKey.load() else { return .noKey }
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue("BotFleet-Mac/2.1", forHTTPHeaderField: "User-Agent")
+        request.httpBody = Data((saved ? #"{"saved":true}"# : #"{"saved":false}"#).utf8)
+        do {
+            let (_, response) = try await session.data(for: request)
+            switch (response as? HTTPURLResponse)?.statusCode ?? 0 {
+            case 200: return nil
+            case 401: return .refused
+            case 403: return .notControl
+            case 404: return .notFound
+            case 429: return .rateLimited
+            case let code: return .server(code)
+            }
+        } catch let error as URLError {
+            return .offline(Self.describe(error))
+        } catch {
+            return .offline("Can't reach Fleet.")
+        }
+    }
+
     static func describe(_ error: URLError) -> String {
         switch error.code {
         case .notConnectedToInternet, .networkConnectionLost: return "This Mac is offline."
@@ -267,8 +444,10 @@ final class FleetModel: ObservableObject {
     }
 
     /// Settings pointed the app at another server: drop the old server's data and notification
-    /// baseline so nothing from it is shown as "last good" Fleet data.
+    /// baseline so nothing from it is shown as "last good" Fleet data, and its control key so it is
+    /// never sent anywhere else.
     func forgetServerData() {
+        removeControlKey()
         generation += 1
         state = nil
         problem = nil
@@ -312,6 +491,23 @@ final class FleetModel: ObservableObject {
         }
         let request = UNNotificationRequest(identifier: "botfleet.attention", content: content, trigger: nil)
         UNUserNotificationCenter.current().add(request)
+    }
+}
+
+extension FleetState {
+    /// Puts a bot in or out of Save for later locally, and keeps the attention list (the menu bar
+    /// count) in step: a saved bot leaves it; a moved-back bot that needs Avi rejoins it.
+    mutating func applySaved(key: String, savedAt: Double?) {
+        guard let index = bots.firstIndex(where: { $0.key == key }) else { return }
+        bots[index].savedAt = savedAt
+        let bot = bots[index]
+        attention.removeAll { $0.key == key }
+        guard savedAt == nil else { return }
+        let shown = Rules.displayState(bot, now: now, staleAfterMs: staleAfterMs)
+        guard shown.needsAttention else { return }
+        attention.append(AttentionItem(account: bot.account, accountLabel: bot.account.label, id: bot.id,
+                                       name: bot.name, group: bot.group, state: shown.rawValue,
+                                       step: bot.step, statusAt: bot.statusAt))
     }
 }
 

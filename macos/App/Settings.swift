@@ -1,13 +1,17 @@
 import Foundation
 import Security
 
-// Where the app reads from. The read key lives in the login Keychain; the URL is not a secret.
+// Where the app reads from. The read key, and the optional control key, each live in their own
+// login Keychain item; the URL is not a secret.
 
 enum KeychainStore {
     static let service = "com.autumnavi.BotFleet"
-    static let account = "read-key"
+    /// The read key (GET /api/v1/state).
+    static let readAccount = "read-key"
+    /// The optional control key (Save for later only). A separate item, never mixed with the read key.
+    static let controlAccount = "control-key"
 
-    static func save(_ secret: String) -> Bool {
+    static func save(_ secret: String, account: String = readAccount) -> Bool {
         let data = Data(secret.utf8)
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
@@ -21,7 +25,7 @@ enum KeychainStore {
         return SecItemAdd(add as CFDictionary, nil) == errSecSuccess
     }
 
-    static func load() -> String? {
+    static func load(account: String = readAccount) -> String? {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -38,7 +42,7 @@ enum KeychainStore {
         return text
     }
 
-    static func delete() {
+    static func delete(account: String = readAccount) {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -46,6 +50,14 @@ enum KeychainStore {
         ]
         SecItemDelete(query as CFDictionary)
     }
+}
+
+/// The control key: lets the app flip Save for later (POST /api/v1/bots/<account>/<id>/saved) and
+/// nothing else. Optional; without it the Later and Move back buttons are hidden.
+enum ControlKey {
+    static func load() -> String? { KeychainStore.load(account: KeychainStore.controlAccount) }
+    static func save(_ secret: String) -> Bool { KeychainStore.save(secret, account: KeychainStore.controlAccount) }
+    static func delete() { KeychainStore.delete(account: KeychainStore.controlAccount) }
 }
 
 extension Notification.Name {
@@ -87,6 +99,16 @@ enum BaseURL {
             return URL(string: "http://\(host)\(port)")
         }
         return nil
+    }
+
+    /// POST target for Save for later: /api/v1/bots/<account>/<id>/saved, the id percent-encoded.
+    static func savedURL(_ base: URL, account: FleetAccount, botId: String) -> URL? {
+        var allowed = CharacterSet.alphanumerics
+        allowed.insert(charactersIn: "-._~")
+        guard !botId.isEmpty, let id = botId.addingPercentEncoding(withAllowedCharacters: allowed) else { return nil }
+        var root = base.absoluteString
+        if root.hasSuffix("/") { root.removeLast() }
+        return URL(string: "\(root)/api/v1/bots/\(account.rawValue)/\(id)/saved")
     }
 
     /// `?account=` narrows only the activity page (the newest 40 events) to one account, as the web

@@ -115,6 +115,7 @@ struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var urlText = BaseURL.saved?.absoluteString ?? BaseURL.suggested
     @State private var keyText = ""
+    @State private var controlText = ""
     @State private var result = ""
     @State private var busy = false
 
@@ -130,6 +131,22 @@ struct SettingsView: View {
             Text("Read key")
             SecureField("Paste the read key", text: $keyText)
                 .textFieldStyle(.roundedBorder)
+            Text("Control key (for Save for later)")
+            HStack {
+                SecureField(model.canSave ? "Stored in the Keychain" : "Optional", text: $controlText)
+                    .textFieldStyle(.roundedBorder)
+                if model.canSave {
+                    Button("Remove") {
+                        model.removeControlKey()
+                        controlText = ""
+                        result = "Control key removed. Later and Move back are hidden."
+                    }
+                }
+            }
+            Text("Optional. It can only move bots in and out of Save for later. Without it those buttons are hidden.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
             if !result.isEmpty {
                 Text(result).font(.callout)
             }
@@ -140,11 +157,12 @@ struct SettingsView: View {
                     .keyboardShortcut(.defaultAction)
                     .disabled(busy)
                 Spacer()
-                Button("Forget key") {
+                Button("Forget keys") {
                     KeychainStore.delete()
                     model.forgetServerData()
                     keyText = ""
-                    result = "Read key removed from the Keychain."
+                    controlText = ""
+                    result = "Keys removed from the Keychain."
                     Task { await model.refresh() }
                 }
                 Button("Close") { dismiss() }
@@ -161,15 +179,31 @@ struct SettingsView: View {
         busy = false
     }
 
-    /// Checks the URL and the key before storing either, so a bad key never leaves a new URL saved.
+    /// Checks the URL and both keys before storing anything, so a bad key never leaves a new URL saved.
+    /// A new server drops the old server's data and its control key before a typed one is stored.
     private func save() async {
         guard BaseURL.normalize(urlText) != nil else {
             result = "Use an https URL, or http://127.0.0.1."
             return
         }
         let typed = cleanKey(keyText)
+        let control = cleanKey(controlText)
+        if !typed.isEmpty && typed.count < 32 {
+            result = "The read key is too short."
+            return
+        }
+        if !control.isEmpty {
+            guard control.count >= 32 else {
+                result = "The control key is too short."
+                return
+            }
+            guard control != (typed.isEmpty ? KeychainStore.load() : typed) else {
+                result = "That is the read key, not the control key."
+                return
+            }
+        }
         if !typed.isEmpty {
-            guard typed.count >= 32, KeychainStore.save(typed) else {
+            guard KeychainStore.save(typed) else {
                 result = "Couldn't store that read key."
                 return
             }
@@ -177,6 +211,18 @@ struct SettingsView: View {
             UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
         }
         _ = model.saveServer(urlText)
+        if !control.isEmpty {
+            // Storing replaces the old item, so a failure can leave none.
+            guard ControlKey.save(control) else {
+                model.canSave = ControlKey.load() != nil
+                result = "Couldn't store the control key."
+                return
+            }
+            // A new key: nothing queued with the old one is sent with it.
+            model.resetSaves()
+            controlText = ""
+            model.canSave = true
+        }
         result = "Saved."
         await model.refresh()
     }

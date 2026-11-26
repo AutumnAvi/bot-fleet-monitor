@@ -1,8 +1,7 @@
 import SwiftUI
 
 /// Focus tab (option 8): one bot that needs Avi at a time, the rest of the queue, Save for later,
-/// everything else by account, and the coding sessions panel. Read-only: the only actions open a
-/// chat or a PR, or change which bot is on the card.
+/// and everything else by account. Coding sessions live in the strip under the usage bars.
 struct FocusView: View {
     @ObservedObject var model: FleetModel
     let d: FleetDerived
@@ -28,7 +27,8 @@ struct FocusView: View {
         d.attention.count > 1 ? d.attention[(currentIndex + 1) % d.attention.count] : nil
     }
 
-    private var liveSessions: Int { d.sessions.filter(Sessions.isLive).count }
+    /// Counted like the sessions strip, so the two numbers agree.
+    private var liveSessions: Int { (d.sessions + d.orphans).filter(Sessions.isLive).count }
 
     var body: some View {
         if narrow {
@@ -38,12 +38,11 @@ struct FocusView: View {
                 upNext
                 savedSection
                 byAccount
-                SessionsPanel(d: d, limit: 4, startCollapsed: true)
             }
             .padding(.horizontal, pad)
         } else {
-            // wide: focus 40% | up next, saved, sessions 28% | by account 32%.
-            // regular: focus, up next, saved 60% | by account, sessions 40%.
+            // wide: focus 40% | up next, saved 28% | by account 32%.
+            // regular: focus, up next, saved 60% | by account 40%.
             GeometryReader { geo in
                 let wide = widthClass == .wide
                 let w = max(0, geo.size.width - pad * 2 - gap * (wide ? 2 : 1))
@@ -61,13 +60,11 @@ struct FocusView: View {
                         column {
                             upNext
                             savedSection
-                            SessionsPanel(d: d, limit: 6)
                         }
                         .frame(width: w * 0.28)
                     }
                     column {
                         byAccount
-                        if !wide { SessionsPanel(d: d) }
                     }
                     .frame(width: w * (wide ? 0.32 : 0.40))
                 }
@@ -116,7 +113,7 @@ struct FocusView: View {
 
     @ViewBuilder private var focusArea: some View {
         if let row = current {
-            FocusCard(row: row, d: d, next: nextRow, onFocus: { model.focusKey = $0 })
+            FocusCard(model: model, row: row, d: d, next: nextRow, onFocus: { model.focusKey = $0 })
         } else {
             VStack(spacing: 10) {
                 Image(systemName: "checkmark.circle.fill").font(.system(size: 34)).foregroundStyle(Theme.fill(.green))
@@ -147,7 +144,10 @@ struct FocusView: View {
     /// One queued bot: one line when it fits, else two (always two in narrow windows).
     /// Tapping the row outside the button puts that bot on the card.
     private func upNextRow(_ row: BotRow, number: Int) -> some View {
-        let name = Text(row.bot.name).font(Theme.F.bodyBold).foregroundStyle(Theme.text).lineLimit(1)
+        let name = HStack(spacing: 7) {
+            BotSymbol(bot: row.bot)
+            Text(row.bot.name).font(Theme.F.bodyBold).foregroundStyle(Theme.text).lineLimit(1)
+        }
         let step = Text(row.step).font(Theme.F.body).foregroundStyle(Theme.text2).lineLimit(1)
         let numberLabel = Text("\(number)").font(Theme.F.small).foregroundStyle(Theme.text3).monospacedDigit()
             .frame(minWidth: 16, alignment: .leading)
@@ -158,6 +158,7 @@ struct FocusView: View {
             AccountTag(account: row.account)
             StateBadge(row: row, now: d.now, uppercase: false)
             ageLabel(row)
+            SaveForLaterButton(model: model, bot: row.bot)
             OpenChatButton(bot: row.bot, compact: true)
         }
         let twoLines = VStack(alignment: .leading, spacing: 6) {
@@ -172,6 +173,7 @@ struct FocusView: View {
                 AccountTag(account: row.account)
                 StateBadge(row: row, now: d.now, uppercase: false)
                 Spacer(minLength: 6)
+                SaveForLaterButton(model: model, bot: row.bot)
                 OpenChatButton(bot: row.bot, compact: true)
             }
         }
@@ -205,6 +207,7 @@ struct FocusView: View {
                 ForEach(d.saved, id: \.key) { row in
                     HStack(spacing: 10) {
                         Image(systemName: "bookmark.fill").font(.system(size: 12)).foregroundStyle(Theme.fg(.violet))
+                        BotSymbol(bot: row.bot)
                         Text(row.bot.name).font(Theme.F.bodyBold).foregroundStyle(Theme.text).lineLimit(1).layoutPriority(1)
                         if !narrow {
                             Text(row.step).font(Theme.F.body).foregroundStyle(Theme.text2).lineLimit(1)
@@ -212,6 +215,7 @@ struct FocusView: View {
                         Spacer(minLength: 8)
                         AccountTag(account: row.account)
                         Pill(text: row.bot.savedAt.map { "Saved \(Fmt.clockOrDate($0, now: d.now))" } ?? "Saved", tone: .violet)
+                        SaveForLaterButton(model: model, bot: row.bot)
                     }
                     .padding(.horizontal, 14)
                     .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
@@ -229,7 +233,8 @@ struct FocusView: View {
                 Text("Everything else, by account").font(Theme.F.title).foregroundStyle(Theme.text)
                     .lineLimit(1).layoutPriority(1)
                 Spacer(minLength: 8)
-                Text("\(FocusText.plural(d.rows.count, "bot")) · \(FocusText.plural(liveSessions, "live coding session"))")
+                Text(liveSessions == 0 ? FocusText.plural(d.rows.count, "bot")
+                     : "\(FocusText.plural(d.rows.count, "bot")) · \(FocusText.plural(liveSessions, "live coding session"))")
                     .font(Theme.F.small).foregroundStyle(Theme.text2).lineLimit(1)
             }
             ForEach(d.accountsWithBots, id: \.self) { account in
@@ -305,7 +310,7 @@ struct FocusView: View {
 
     private func workingLine(_ row: BotRow) -> some View {
         HStack(spacing: 8) {
-            Dot(tone: .blue)
+            BotSymbol(bot: row.bot, size: 14)
             Text(row.bot.name).font(Theme.F.bodyBold).foregroundStyle(Theme.text).lineLimit(1).layoutPriority(1)
             Text(row.step).font(Theme.F.body).foregroundStyle(Theme.text2).lineLimit(1)
             Spacer(minLength: 6)

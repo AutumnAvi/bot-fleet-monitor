@@ -2,15 +2,16 @@
 
 A Dock app and a menu-bar item. Opening the app, or clicking its Dock icon, brings the
 Bot Fleet window forward. The menu bar shows how many bots need Avi and a short list.
-It does not message or wake a bot.
+It does not message or wake a bot. Its only write is Save for later (below).
 
 The window is native SwiftUI. It reads `GET /api/v1/state` with `URLSession` every 20 seconds
 and draws Focus, Board and Feed itself. There is no web view, so a Screen Time web filter that
 blocks `*.workers.dev` in Safari and WebKit does not affect it (the same approach as Session
 Monitor). It needs only the dashboard URL and the read key, never the dashboard password.
 
-The read key lives in the login Keychain (`com.autumnavi.BotFleet` / `read-key`). The
-dashboard URL is not a secret; it is saved in preferences. Neither is in this repo.
+The read key lives in the login Keychain (`com.autumnavi.BotFleet` / `read-key`). The optional
+control key has its own item (`com.autumnavi.BotFleet` / `control-key`). The dashboard URL is
+not a secret; it is saved in preferences. None of them is in this repo.
 
 ## Install a build
 
@@ -35,23 +36,46 @@ also attached to the GitHub Release.
 
 ## What the window shows
 
+- **Usage bars** sit on top of every tab. Grok first: **Grok · Avi's Work 41%** and
+  **Grok · Admin 12%**, each with "as of <time>" (when the numbers were read). Hover a Grok bar for
+  the per-bot breakdown. A bar with nothing pushed yet says "no data yet". Claude, Cursor, Codex
+  and API pools appear in a second row once they have data.
+- **Coding sessions** (Claude Code, T3, Cursor) are one slim strip under the usage bars on every
+  tab: how many are running, then a chip per session (tool, short title, step, and the symbol of
+  the bot that started it), then +N. Click it to expand the list in place. It is hidden when no
+  session ran in the last 24 hours. Sessions are FYI only and never Needs my attention.
 - **Focus**: Needs my attention, one bot at a time, with its account tag (indigo Avi's Work,
-  green Admin), what it is doing, its recent feed lines and the coding session it started.
-  **Open chat · Avi's Work** / **Open chat · Admin** opens `grokbot://app/v1/agent?id=<botId>`;
-  the label names the account because the link opens whichever Grok Bot account is signed in.
-  Press **N** for the next bot. Up next, Save for later and every other bot by account follow.
+  green Admin), its one line, and its recent updates. The one line is the bot's latest summary
+  while it is among the latest 40 updates the app reads, else its step. Like every feed line it
+  is at most 80 characters (the Worker's cap); hover shows all of it. Showing longer summaries
+  would need `summary` on `bots[]` in `/api/v1/state` (a Worker change). **Open chat · Avi's Work** / **Open chat · Admin** opens
+  `grokbot://app/v1/agent?id=<botId>`; the label names the account because the link opens
+  whichever Grok Bot account is signed in. Press **N** for the next bot. Up next, Save for later
+  and every other bot by account follow.
 - **Board**: Kanban columns Needs me, Working, Saved for later and Idle & done.
-- **Feed**: the latest bot updates, with Needs me / Avi's Work / Admin filters.
-- **Coding sessions** (Claude Code, T3, Cursor) sit in their own small FYI panel with the bot
-  that started each one. They are never Needs my attention.
-- **Usage strip**: Grok Bot for both accounts (hover for the top bots, click for the per-bot breakdown), Claude
-  for Avi's Work and Admin (5-hour and weekly meters), Cursor's meters, Codex and API pools.
+- **Feed**: the latest bot updates, with Needs me / Avi's Work / Admin filters. Summary updates
+  are not listed (the latest one is the bot's one line), and back-to-back repeats from the same
+  bot show once. Labels are short: Working, Needs you, Stuck, Idle, Done, Sent you, You replied,
+  Saved, Unsaved.
+- Each bot has a small symbol: its Grok Bot shape and colour, or its initials on a colour that
+  comes from its id when it has none. The status keeps its own badge.
 - The account filter (All, Avi's Work, Admin) applies to every tab, and the feed then reads that
   account's latest updates from the server. Times are Asia/Hebron.
 
-The app holds a read-only key, so it has no Save for later or Move back buttons; use the web
-dashboard or the bot for those. Full summaries and message copies stay in the chat; the window
-shows each bot's step, unread count and its lines in the feed.
+### Save for later
+
+Settings has an optional **Control key (for Save for later)** field. Paste `control-key` from the
+secrets folder (see `docs/DEPLOY.md`). It can only move bots in and out of Save for later
+(`POST /api/v1/bots/<account>/<id>/saved`); it cannot read or report anything. Without it the
+buttons below are hidden.
+
+- **Later** on the Focus card and on every Needs-me row; **Move back** on saved rows.
+- The bot moves at once, and a toast says **Saved for later · Undo** for about 6 seconds. Undo
+  (or ⌘Z) sends it back.
+- If Fleet refuses the change, the bot goes back where it was and the toast says why.
+- Pointing the app at another server, or **Forget keys**, deletes the control key.
+
+The bot still leaves Save for later on its next Needs-you or Stuck report, or when Avi replies.
 
 When a read fails, a banner says why (offline, key refused, server error) and the window keeps
 the last good data on screen with its time. It tries again every 20 seconds, and right away
@@ -94,4 +118,6 @@ APP=build/Build/Products/Release/BotFleet.app/Contents/MacOS/BotFleet
 ```
 
 Options: `tab=focus|board|feed`, `width=`, `height=`, `dark`, `filter=all|work|leaf`,
-`state=offline`, `part=grok` (the Grok breakdown popover). It reads only the file you pass.
+`state=offline`, `part=grok` (the Grok breakdown popover), `nodata` (no usage or sessions
+pushed yet), `toast=saved` (Later pressed on the first bot, no network). It reads only the file
+you pass.

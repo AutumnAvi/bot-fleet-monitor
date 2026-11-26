@@ -3,7 +3,7 @@ import SwiftUI
 
 /// CI preview, same idea as Session Monitor's:
 /// `<app> --snapshot state.json out.png [tab=focus|board|feed] [width=1440] [height=900] [dark]
-///  [state=offline] [filter=all|work|leaf] [part=grok]`
+///  [state=offline] [filter=all|work|leaf] [part=grok] [nodata] [toast=saved]`
 /// renders the real window from a saved GET /api/v1/state reply, prints what it decoded, and exits.
 /// The clock is frozen at the sample's `now`, so ages are the same on every run. No network.
 @MainActor
@@ -18,18 +18,33 @@ enum Snapshot {
             print("no sample at \(sample)")
             return false
         }
-        let state: FleetState
+        var state: FleetState
         do {
             state = try JSONDecoder().decode(FleetState.self, from: data)
         } catch {
             print("decode failed: \(error)")
             return false
         }
+        // `nodata`: nothing pushed yet for usage or coding sessions, as on a fresh deploy.
+        if options.contains("nodata") {
+            state.grok = []
+            state.accounts = []
+            state.sessions = []
+        }
         let tab = DashboardTab(rawValue: option("tab") ?? "") ?? .focus
         let filter = AccountFilter(rawValue: option("filter") ?? "") ?? .all
         let problem: FetchProblem? = option("state") == "offline" ? .offline("Can't reach the dashboard URL.") : nil
         let model = FleetModel(preview: state, tab: tab, filter: filter, problem: problem)
         report(state, model: model)
+        // `toast=saved`: press Later on the first bot that needs Avi (no network in previews).
+        if option("toast") == "saved" {
+            let d = FleetDerived(state: state, filter: filter, now: state.now)
+            if let first = d.attention.first {
+                model.setSaved(first.bot, saved: true)
+                let after = FleetDerived(state: model.state ?? state, filter: filter, now: state.now)
+                print("TOAST \(model.toast?.text ?? "-") · Undo=\(model.toast?.undo?.name ?? "-") | saved=\(after.saved.count) attention=\(after.attention.count) menu=\(model.items.count)")
+            }
+        }
 
         let width = CGFloat(Double(option("width") ?? "") ?? 1440)
         let height = CGFloat(Double(option("height") ?? "") ?? 900)
@@ -77,6 +92,14 @@ enum Snapshot {
         let d = FleetDerived(state: state, filter: model.filter, now: model.now)
         print("STATE version=\(state.version) bots=\(state.bots.count) attention=\(state.attention.count) sessions=\(state.sessions.count) accounts=\(state.accounts.count) grok=\(state.grok.count) activity=\(state.activity.count)")
         print("PARTITION attention=\(d.attention.count) saved=\(d.saved.count) working=\(d.working.count) idle=\(d.idle.count) rows=\(d.rows.count)")
+        let strip = SessionsStrip.recent(d)
+        print("STRIP sessions=\(strip.count) running=\(strip.filter(Sessions.isLive).count)")
+        print("ACTIVITY raw=\(state.activity.count) visible=\(d.activity.count)")
+        let shaped = d.rows.filter { BotLook.shape($0.bot.avatar?.shape) != nil }.count
+        print("SYMBOLS shapes=\(shaped) initials=\(d.rows.count - shaped)")
+        for row in d.rows.prefix(3) {
+            print("SYMBOL \(row.bot.name) | \(BotLook.describe(id: row.bot.id, name: row.bot.name, avatar: row.bot.avatar))")
+        }
         for row in d.attention {
             let link = Rules.openURL(botId: row.bot.id)?.absoluteString ?? "-"
             print("ATTENTION \(row.account.rawValue) | \(row.bot.name) | \(row.state.label) | \(Rules.openLabel(row.account)) | \(link)")

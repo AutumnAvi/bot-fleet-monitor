@@ -1,8 +1,8 @@
 import SwiftUI
 
 /// Feed tab: what needs Avi pinned on top, saved bots, then the timeline of what bots pushed.
-/// Regular and wide windows add a side column (working now, coding sessions, by account).
-/// Read-only: the app's key can only read, so there is no Save for later or Move back here.
+/// Regular and wide windows add a side column (working now, by account).
+/// Later and Move back appear only when Settings has a control key.
 struct FeedView: View {
     @ObservedObject var model: FleetModel
     let d: FleetDerived
@@ -43,7 +43,6 @@ struct FeedView: View {
     private var sideColumn: some View {
         VStack(alignment: .leading, spacing: 14) {
             workingCard
-            SessionsPanel(d: d, limit: 6)
             byAccountCard
         }
     }
@@ -54,7 +53,6 @@ struct FeedView: View {
             attentionSection
             savedSection
             workingChips
-            SessionsPanel(d: d, limit: 4, startCollapsed: true)
             timelineSection
         }
     }
@@ -80,7 +78,7 @@ struct FeedView: View {
             } else {
                 LazyVGrid(columns: attentionColumns, alignment: .leading, spacing: 10) {
                     ForEach(d.attention, id: \.key) { row in
-                        FeedAttentionCard(row: row, now: d.now) { model.focus(on: row.key) }
+                        FeedAttentionCard(model: model, row: row, now: d.now) { model.focus(on: row.key) }
                     }
                 }
             }
@@ -100,7 +98,7 @@ struct FeedView: View {
         if !d.saved.isEmpty {
             VStack(alignment: .leading, spacing: 8) {
                 ForEach(Array(d.saved.prefix(3)), id: \.key) { row in
-                    FeedSavedStrip(row: row, now: d.now)
+                    FeedSavedStrip(model: model, row: row, now: d.now)
                 }
                 if d.saved.count > 3 {
                     Text("+\(d.saved.count - 3) more saved").font(Theme.F.caption).foregroundStyle(Theme.text3)
@@ -114,7 +112,7 @@ struct FeedView: View {
     /// The account chips set the window's account filter, which reads that account's own page of
     /// updates from the server (not just a slice of the shared 40). "Needs me" narrows what was read.
     private var shownActivity: [ActivityItem] {
-        d.activity.filter { !needsOnly || FeedChip.asksAvi($0) }.sorted { ($0.at, $0.seq) > ($1.at, $1.seq) }
+        d.activity.filter { !needsOnly || FeedChip.asksAvi($0) }
     }
 
     private func isOn(_ option: FeedChip) -> Bool {
@@ -186,7 +184,7 @@ struct FeedView: View {
                 ForEach(FeedSection.group(items, now: d.now)) { section in
                     SectionLabel(text: section.title).padding(.leading, 54).padding(.top, 4).padding(.bottom, 8)
                     ForEach(Array(section.items.enumerated()), id: \.element.seq) { index, item in
-                        FeedTimelineRow(item: item, now: d.now, connects: index < section.items.count - 1)
+                        FeedTimelineRow(item: item, avatar: d.row(item.botKey)?.bot.avatar, now: d.now, connects: index < section.items.count - 1)
                     }
                 }
                 Text(verbatim: "Latest \(items.count) update\(items.count == 1 ? "" : "s") · bots push these")
@@ -321,13 +319,13 @@ private struct FeedSection: Identifiable {
     }
 }
 
-/// Dot and name of a working bot: blue for Avi's Work, green for Admin.
+/// Symbol and name of a working bot.
 private struct FeedWorkingLabel: View {
     let row: BotRow
 
     var body: some View {
-        HStack(spacing: 8) {
-            Dot(tone: row.account == .work ? .blue : .green)
+        HStack(spacing: 7) {
+            BotSymbol(bot: row.bot, size: 14)
             Text(row.bot.name).font(Theme.F.bodyBold).foregroundStyle(Theme.text).lineLimit(1)
         }
     }
@@ -336,6 +334,7 @@ private struct FeedWorkingLabel: View {
 /// One pinned Needs-my-attention card: state and age, bot, account, step, Open chat.
 /// Clicking the name shows the bot in Focus.
 private struct FeedAttentionCard: View {
+    @ObservedObject var model: FleetModel
     let row: BotRow
     let now: Double
     let onFocus: () -> Void
@@ -355,13 +354,20 @@ private struct FeedAttentionCard: View {
                 }
             }
             Button(action: onFocus) {
-                Text(row.bot.name).font(Theme.F.bodyBold).foregroundStyle(Theme.text).lineLimit(1)
+                HStack(spacing: 6) {
+                    BotSymbol(bot: row.bot)
+                    Text(row.bot.name).font(Theme.F.bodyBold).foregroundStyle(Theme.text).lineLimit(1)
+                }
             }
             .buttonStyle(PlainRowButtonStyle())
             .help("Show \(row.bot.name) in Focus")
             AccountTag(account: row.account)
             Text(row.step).font(Theme.F.small).foregroundStyle(Theme.text2).lineLimit(1).help(row.step)
-            OpenChatButton(bot: row.bot, compact: true).padding(.top, 2)
+            FlowLayout(spacing: 6).callAsFunction {
+                OpenChatButton(bot: row.bot, compact: true)
+                SaveForLaterButton(model: model, bot: row.bot)
+            }
+            .padding(.top, 2)
         }
         .padding(.leading, 15)
         .padding([.trailing, .vertical], 12)
@@ -371,23 +377,23 @@ private struct FeedAttentionCard: View {
     }
 }
 
-/// Dashed violet strip for a bot in Save for later. Read-only: no Move back.
+/// Dashed violet strip for a bot in Save for later, with Move back when Settings has a control key.
 private struct FeedSavedStrip: View {
+    @ObservedObject var model: FleetModel
     let row: BotRow
     let now: Double
 
+    /// One line when it fits; otherwise the buttons drop to a second line so the name stays readable.
     var body: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "bookmark.fill").font(.system(size: 12)).foregroundStyle(Theme.fg(.violet))
-            Text("Saved:").font(Theme.F.bodyBold).foregroundStyle(Theme.text).fixedSize()
-            Text(verbatim: "\(row.bot.name) · \(row.step)")
-                .font(Theme.F.body).foregroundStyle(Theme.fg(.violet)).lineLimit(1).truncationMode(.tail)
-            AccountTag(account: row.account)
-            Spacer(minLength: 8)
-            OpenChatButton(bot: row.bot, compact: true)
-            if let savedAt = row.bot.savedAt {
-                Text(verbatim: "since \(Fmt.clockOrDate(savedAt, now: now))")
-                    .font(Theme.F.caption).foregroundStyle(Theme.text3).lineLimit(1).fixedSize()
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 8) {
+                lead(fixed: true)
+                Spacer(minLength: 8)
+                actions
+            }
+            VStack(alignment: .leading, spacing: 8) {
+                lead(fixed: false)
+                HStack(spacing: 8) { actions }
             }
         }
         .padding(.horizontal, 14)
@@ -395,11 +401,33 @@ private struct FeedSavedStrip: View {
         .card(fill: Theme.tint(.violet).opacity(0.35), dashed: true)
         .help(row.step)
     }
+
+    private func lead(fixed: Bool) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "bookmark.fill").font(.system(size: 12)).foregroundStyle(Theme.fg(.violet))
+            BotSymbol(bot: row.bot)
+            Text(verbatim: "\(row.bot.name) · \(row.step)")
+                .font(Theme.F.body).foregroundStyle(Theme.fg(.violet)).lineLimit(1).truncationMode(.tail)
+                .fixedSize(horizontal: fixed, vertical: false)
+            AccountTag(account: row.account)
+        }
+    }
+
+    @ViewBuilder private var actions: some View {
+        OpenChatButton(bot: row.bot, compact: true)
+        SaveForLaterButton(model: model, bot: row.bot)
+        if let savedAt = row.bot.savedAt {
+            Text(verbatim: "since \(Fmt.clockOrDate(savedAt, now: now))")
+                .font(Theme.F.caption).foregroundStyle(Theme.text3).lineLimit(1).fixedSize()
+        }
+    }
 }
 
 /// One timeline entry: a round avatar on the connector line, then a card with the update.
 private struct FeedTimelineRow: View {
     let item: ActivityItem
+    /// The bot's Grok Bot look, when the roster has it.
+    let avatar: BotAvatar?
     let now: Double
     /// Draw the line down to the next avatar in the same section.
     let connects: Bool
@@ -407,18 +435,22 @@ private struct FeedTimelineRow: View {
     var body: some View {
         let tone = Rules.activityTone(kind: item.kind)
         HStack(alignment: .top, spacing: 14) {
-            Avatar(name: item.botName, tone: tone, size: 40, circle: true)
+            BotSymbol(id: item.botId, name: item.botName, avatar: avatar, size: 40, tile: true)
             VStack(alignment: .leading, spacing: 5) {
                 HStack(spacing: 6) {
                     Text(item.botName).font(Theme.F.bodyBold).foregroundStyle(Theme.text).lineLimit(1)
                     AccountTag(account: item.account)
-                    Pill(text: Rules.activityBadge(kind: item.kind), tone: tone)
+                    Pill(text: Rules.activityLabel(kind: item.kind), tone: tone)
                     Spacer(minLength: 8)
                     Text(Fmt.clockOrDate(item.at, now: now))
                         .font(Theme.F.caption).foregroundStyle(Theme.text3)
                         .lineLimit(1).fixedSize().help(Fmt.full(item.at))
                 }
-                Text(message).font(.system(size: 14)).foregroundStyle(Theme.text).fixedSize(horizontal: false, vertical: true)
+                if let detail = Rules.activityDetail(kind: item.kind, detail: item.detail) {
+                    Text(detail).font(.system(size: 14)).foregroundStyle(Theme.text)
+                        .lineLimit(2).truncationMode(.tail).fixedSize(horizontal: false, vertical: true)
+                        .help(detail)
+                }
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 11)
@@ -431,11 +463,5 @@ private struct FeedTimelineRow: View {
                 Rectangle().fill(Theme.line).frame(width: 2).padding(.top, 40).padding(.leading, 19)
             }
         }
-    }
-
-    /// A message shows its first words as a quote; other kinds use the shared feed copy.
-    private var message: String {
-        if item.kind == "message", let detail = item.detail { return "“\(detail)”" }
-        return Rules.activityText(kind: item.kind, detail: item.detail)
     }
 }

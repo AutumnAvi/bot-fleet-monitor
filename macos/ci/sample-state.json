@@ -11,11 +11,15 @@
       "status": "working",
       "step": "Designing the merged Fleet monitor",
       "statusAt": 1795603734000,
-      "summaryAt": null,
+      "summaryAt": 1795603712000,
       "unread": 0,
       "lastAviReplyAt": null,
       "lastReportAt": 1795603734000,
-      "savedAt": null
+      "savedAt": null,
+      "avatar": {
+        "shape": "star",
+        "color": "black"
+      }
     },
     {
       "account": "work",
@@ -30,7 +34,8 @@
       "unread": 0,
       "lastAviReplyAt": null,
       "lastReportAt": null,
-      "savedAt": null
+      "savedAt": null,
+      "avatar": null
     },
     {
       "account": "work",
@@ -45,7 +50,8 @@
       "unread": 0,
       "lastAviReplyAt": null,
       "lastReportAt": null,
-      "savedAt": null
+      "savedAt": null,
+      "avatar": null
     },
     {
       "account": "work",
@@ -60,7 +66,8 @@
       "unread": 0,
       "lastAviReplyAt": null,
       "lastReportAt": null,
-      "savedAt": null
+      "savedAt": null,
+      "avatar": null
     },
     {
       "account": "work",
@@ -75,7 +82,8 @@
       "unread": 0,
       "lastAviReplyAt": null,
       "lastReportAt": null,
-      "savedAt": null
+      "savedAt": null,
+      "avatar": null
     },
     {
       "account": "work",
@@ -90,7 +98,8 @@
       "unread": 0,
       "lastAviReplyAt": null,
       "lastReportAt": null,
-      "savedAt": null
+      "savedAt": null,
+      "avatar": null
     },
     {
       "account": "work",
@@ -105,7 +114,8 @@
       "unread": 0,
       "lastAviReplyAt": null,
       "lastReportAt": 1795344552000,
-      "savedAt": null
+      "savedAt": null,
+      "avatar": null
     },
     {
       "account": "work",
@@ -120,7 +130,8 @@
       "unread": 0,
       "lastAviReplyAt": null,
       "lastReportAt": 1795332552000,
-      "savedAt": null
+      "savedAt": null,
+      "avatar": null
     },
     {
       "account": "work",
@@ -135,7 +146,11 @@
       "unread": 1,
       "lastAviReplyAt": null,
       "lastReportAt": 1795603272000,
-      "savedAt": null
+      "savedAt": null,
+      "avatar": {
+        "shape": "wedge",
+        "color": "red"
+      }
     },
     {
       "account": "work",
@@ -150,7 +165,11 @@
       "unread": 0,
       "lastAviReplyAt": null,
       "lastReportAt": 1795603692000,
-      "savedAt": null
+      "savedAt": null,
+      "avatar": {
+        "shape": "blob",
+        "color": "cyan"
+      }
     },
     {
       "account": "work",
@@ -161,11 +180,15 @@
       "status": "waiting_user",
       "step": "Wants your review of PR #48 before it goes further",
       "statusAt": 1795603632000,
-      "summaryAt": null,
+      "summaryAt": 1795603602000,
       "unread": 1,
-      "lastAviReplyAt": null,
+      "lastAviReplyAt": 1795564152000,
       "lastReportAt": 1795603632000,
-      "savedAt": null
+      "savedAt": null,
+      "avatar": {
+        "shape": "cloud",
+        "color": "blue"
+      }
     },
     {
       "account": "work",
@@ -180,7 +203,8 @@
       "unread": 0,
       "lastAviReplyAt": null,
       "lastReportAt": 1795091352000,
-      "savedAt": null
+      "savedAt": null,
+      "avatar": null
     },
     {
       "account": "work",
@@ -195,7 +219,8 @@
       "unread": 0,
       "lastAviReplyAt": null,
       "lastReportAt": 1795602372000,
-      "savedAt": null
+      "savedAt": null,
+      "avatar": null
     },
     {
       "account": "work",
@@ -210,7 +235,8 @@
       "unread": 0,
       "lastAviReplyAt": null,
       "lastReportAt": 1795427352000,
-      "savedAt": null
+      "savedAt": null,
+      "avatar": null
     },
     {
       "account": "work",
@@ -225,7 +251,11 @@
       "unread": 2,
       "lastAviReplyAt": null,
       "lastReportAt": 1795602912000,
-      "savedAt": null
+      "savedAt": null,
+      "avatar": {
+        "shape": "tablet",
+        "color": "brown"
+      }
     },
     {
       "account": "work",
@@ -240,7 +270,11 @@
       "unread": 0,
       "lastAviReplyAt": null,
       "lastReportAt": 1795603392000,
-      "savedAt": null
+      "savedAt": null,
+      "avatar": {
+        "shape": "hex",
+        "color": "orange"
+      }
     },
     {
       "account": "work",
@@ -255,7 +289,8 @@
       "unread": 0,
       "lastAviReplyAt": null,
       "lastReportAt": null,
-      "savedAt": null
+      "savedAt": null,
+      "avatar": null
     },
     {
       "account": "work",
@@ -270,7 +305,11 @@
       "unread": 0,
       "lastAviReplyAt": null,
       "lastReportAt": 1795603572000,
-      "savedAt": null
+      "savedAt": null,
+      "avatar": {
+        "shape": "pebble",
+        "color": "yellow"
+      }
     },
     {
       "account": "work",
@@ -285,7 +324,11 @@
       "unread": 1,
       "lastAviReplyAt": null,
       "lastReportAt": 1795592952000,
-      "savedAt": 1795592952000
+      "savedAt": 1795592952000,
+      "avatar": {
+        "shape": "blob",
+        "color": "orange"
+      }
     },
     {
       "account": "work",
@@ -300,7 +343,8 @@
       "unread": 0,
       "lastAviReplyAt": null,
       "lastReportAt": null,
-      "savedAt": null
+      "savedAt": null,
+      "avatar": null
     },
     {
       "account": "work",
@@ -315,7 +359,11 @@
       "unread": 1,
       "lastAviReplyAt": null,
       "lastReportAt": 1795603692000,
-      "savedAt": null
+      "savedAt": null,
+      "avatar": {
+        "shape": "teardrop",
+        "color": "blue"
+      }
     },
     {
       "account": "work",
@@ -330,7 +378,11 @@
       "unread": 0,
       "lastAviReplyAt": null,
       "lastReportAt": 1795603512000,
-      "savedAt": null
+      "savedAt": null,
+      "avatar": {
+        "shape": "hex",
+        "color": "black"
+      }
     },
     {
       "account": "work",
@@ -345,7 +397,8 @@
       "unread": 0,
       "lastAviReplyAt": null,
       "lastReportAt": null,
-      "savedAt": null
+      "savedAt": null,
+      "avatar": null
     },
     {
       "account": "work",
@@ -360,7 +413,8 @@
       "unread": 0,
       "lastAviReplyAt": null,
       "lastReportAt": null,
-      "savedAt": null
+      "savedAt": null,
+      "avatar": null
     },
     {
       "account": "work",
@@ -375,7 +429,8 @@
       "unread": 0,
       "lastAviReplyAt": null,
       "lastReportAt": null,
-      "savedAt": null
+      "savedAt": null,
+      "avatar": null
     },
     {
       "account": "work",
@@ -390,7 +445,8 @@
       "unread": 0,
       "lastAviReplyAt": null,
       "lastReportAt": null,
-      "savedAt": null
+      "savedAt": null,
+      "avatar": null
     },
     {
       "account": "work",
@@ -405,7 +461,8 @@
       "unread": 0,
       "lastAviReplyAt": null,
       "lastReportAt": null,
-      "savedAt": null
+      "savedAt": null,
+      "avatar": null
     },
     {
       "account": "work",
@@ -420,7 +477,8 @@
       "unread": 0,
       "lastAviReplyAt": null,
       "lastReportAt": null,
-      "savedAt": null
+      "savedAt": null,
+      "avatar": null
     },
     {
       "account": "work",
@@ -435,7 +493,8 @@
       "unread": 0,
       "lastAviReplyAt": null,
       "lastReportAt": 1795590732000,
-      "savedAt": null
+      "savedAt": null,
+      "avatar": null
     },
     {
       "account": "work",
@@ -450,7 +509,8 @@
       "unread": 0,
       "lastAviReplyAt": null,
       "lastReportAt": 1795596012000,
-      "savedAt": null
+      "savedAt": null,
+      "avatar": null
     },
     {
       "account": "work",
@@ -465,7 +525,11 @@
       "unread": 0,
       "lastAviReplyAt": null,
       "lastReportAt": 1795597512000,
-      "savedAt": null
+      "savedAt": null,
+      "avatar": {
+        "shape": "teardrop",
+        "color": "cyan"
+      }
     },
     {
       "account": "work",
@@ -480,7 +544,8 @@
       "unread": 0,
       "lastAviReplyAt": null,
       "lastReportAt": null,
-      "savedAt": null
+      "savedAt": null,
+      "avatar": null
     },
     {
       "account": "leaf",
@@ -495,7 +560,8 @@
       "unread": 0,
       "lastAviReplyAt": null,
       "lastReportAt": 1795524552000,
-      "savedAt": null
+      "savedAt": null,
+      "avatar": null
     },
     {
       "account": "leaf",
@@ -510,7 +576,8 @@
       "unread": 0,
       "lastAviReplyAt": null,
       "lastReportAt": 1795603212000,
-      "savedAt": null
+      "savedAt": null,
+      "avatar": null
     },
     {
       "account": "leaf",
@@ -525,7 +592,8 @@
       "unread": 1,
       "lastAviReplyAt": null,
       "lastReportAt": 1795601352000,
-      "savedAt": null
+      "savedAt": null,
+      "avatar": null
     },
     {
       "account": "leaf",
@@ -540,7 +608,8 @@
       "unread": 0,
       "lastAviReplyAt": null,
       "lastReportAt": 1795432752000,
-      "savedAt": null
+      "savedAt": null,
+      "avatar": null
     }
   ],
   "activity": {
@@ -553,6 +622,15 @@
         "botName": "Chief · Chief of Staff",
         "kind": "working",
         "detail": "Designing the merged Fleet monitor"
+      },
+      {
+        "seq": 35,
+        "at": 1795603712000,
+        "account": "work",
+        "botId": "b0642d5e-4aaf-41e7-9c15-637f06e15398",
+        "botName": "Chief · Chief of Staff",
+        "kind": "summary",
+        "detail": "Merging the Fleet monitor views into option 8."
       },
       {
         "seq": 19,
@@ -580,6 +658,15 @@
         "botName": "Dropbox Rebuild PM",
         "kind": "waiting_user",
         "detail": "Wants your review of PR #48 before it goes further"
+      },
+      {
+        "seq": 33,
+        "at": 1795603602000,
+        "account": "work",
+        "botId": "11c79271-23cb-4a59-a79e-7bd71c96d55e",
+        "botName": "Dropbox Rebuild PM",
+        "kind": "summary",
+        "detail": "PR #48 is green and waiting on your review. Rollback test is 2 of 4 steps in."
       },
       {
         "seq": 31,
@@ -660,6 +747,15 @@
         "botId": "5fb801a1-82ea-4043-96da-756990389d89",
         "botName": "Internal DAM",
         "kind": "waiting_user",
+        "detail": "OK to archive 212 stale items?"
+      },
+      {
+        "seq": 34,
+        "at": 1795602892000,
+        "account": "work",
+        "botId": "5fb801a1-82ea-4043-96da-756990389d89",
+        "botName": "Internal DAM",
+        "kind": "message",
         "detail": "OK to archive 212 stale items?"
       },
       {
@@ -778,6 +874,15 @@
         "botName": "Cursor Prompter",
         "kind": "done",
         "detail": "Rules file refreshed for Cursor"
+      },
+      {
+        "seq": 36,
+        "at": 1795564152000,
+        "account": "work",
+        "botId": "11c79271-23cb-4a59-a79e-7bd71c96d55e",
+        "botName": "Dropbox Rebuild PM",
+        "kind": "avi_replied",
+        "detail": null
       },
       {
         "seq": 5,
@@ -1357,7 +1462,8 @@
           "share": 2,
           "routinesShare": 0
         }
-      ]
+      ],
+      "asOf": 1795602551987
     },
     {
       "account": "leaf",
@@ -1383,7 +1489,8 @@
           "share": 3,
           "routinesShare": 3
         }
-      ]
+      ],
+      "asOf": 1795592951993
     }
   ],
   "attention": [

@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Board tab: one kanban column per bot status, using the server's partition (Needs me, Working,
-/// Saved for later, Idle & done). Read-only: the only actions open a chat or a PR.
+/// Saved for later, Idle & done). Actions open a chat or a PR, or (with a control key) Later / Move back.
 struct BoardView: View {
     @ObservedObject var model: FleetModel
     let d: FleetDerived
@@ -24,7 +24,7 @@ struct BoardView: View {
             VStack(alignment: .leading, spacing: Self.gap) {
                 needsColumn(scrolls: false, perRow: 1)
                 workingColumn(scrolls: false, perRow: 2, compact: true)
-                savedColumn(scrolls: false, sessionLimit: 4)
+                savedColumn(scrolls: false)
                 idleColumn(scrolls: false, chips: true)
             }
             .padding(Self.pad)
@@ -42,7 +42,7 @@ struct BoardView: View {
             HStack(alignment: .top, spacing: Self.gap) {
                 needsColumn(scrolls: true, perRow: wide ? 2 : 1).frame(width: unit * ratios[0])
                 workingColumn(scrolls: true, perRow: wide ? 2 : 1, compact: false).frame(width: unit * ratios[1])
-                savedColumn(scrolls: true, sessionLimit: 8).frame(width: unit * ratios[2])
+                savedColumn(scrolls: true).frame(width: unit * ratios[2])
                 idleColumn(scrolls: true, chips: false).frame(width: unit * ratios[3])
             }
             .padding(Self.pad)
@@ -55,7 +55,7 @@ struct BoardView: View {
     private func needsColumn(scrolls: Bool, perRow: Int) -> some View {
         BoardColumn(.needs, count: d.attention.count, byAccount: grouped(d.attention), scrolls: scrolls) {
             cards(d.attention, lane: .needs, perRow: perRow) { row in
-                BoardNeedsCard(row: row, d: d, onFocus: { model.focus(on: row.key) })
+                BoardNeedsCard(model: model, row: row, d: d, onFocus: { model.focus(on: row.key) })
             }
         }
     }
@@ -68,13 +68,11 @@ struct BoardView: View {
         }
     }
 
-    /// Saved cards, then the coding sessions panel (FYI only).
-    private func savedColumn(scrolls: Bool, sessionLimit: Int) -> some View {
+    private func savedColumn(scrolls: Bool) -> some View {
         BoardColumn(.saved, count: d.saved.count, byAccount: grouped(d.saved), scrolls: scrolls) {
             cards(d.saved, lane: .saved, perRow: 1) { row in
-                BoardSavedCard(row: row, now: d.now)
+                BoardSavedCard(model: model, row: row, now: d.now)
             }
-            SessionsPanel(d: d, limit: sessionLimit)
         }
     }
 
@@ -250,6 +248,7 @@ private struct BoardTime: View {
 
 /// Needs me / Stuck / Stale. Clicking the name shows the bot in Focus.
 private struct BoardNeedsCard: View {
+    @ObservedObject var model: FleetModel
     let row: BotRow
     let d: FleetDerived
     let onFocus: () -> Void
@@ -258,6 +257,7 @@ private struct BoardNeedsCard: View {
         VStack(alignment: .leading, spacing: 5) {
             BoardGroupLine(row: row)
             HStack(spacing: 8) {
+                BotSymbol(bot: row.bot)
                 Button(action: onFocus) {
                     Text(row.bot.name).font(Theme.F.cardTitle).foregroundStyle(Theme.text).lineLimit(1)
                 }
@@ -274,6 +274,7 @@ private struct BoardNeedsCard: View {
                 if let pr = prURL {
                     LinkButton(title: Sessions.prLabel(pr.absoluteString), url: pr, compact: true)
                 }
+                SaveForLaterButton(model: model, bot: row.bot)
             }
             .padding(.top, 4)
         }
@@ -298,6 +299,7 @@ private struct BoardWorkingCard: View {
         VStack(alignment: .leading, spacing: compact ? 3 : 5) {
             if !compact { BoardGroupLine(row: row) }
             HStack(spacing: 8) {
+                BotSymbol(bot: row.bot)
                 Text(row.bot.name).font(Theme.F.cardTitle).foregroundStyle(Theme.text).lineLimit(1)
                 Spacer(minLength: 6)
                 if let at = Rules.lastSeenAt(row.bot) { BoardTime(text: Fmt.age(at, now: d.now)) }
@@ -317,8 +319,9 @@ private struct BoardWorkingCard: View {
     }
 }
 
-/// Saved for later. No "Move back": the app holds a read-only key.
+/// Saved for later, with Move back when Settings has a control key.
 private struct BoardSavedCard: View {
+    @ObservedObject var model: FleetModel
     let row: BotRow
     let now: Double
 
@@ -326,13 +329,18 @@ private struct BoardSavedCard: View {
         VStack(alignment: .leading, spacing: 5) {
             BoardGroupLine(row: row)
             HStack(spacing: 8) {
+                BotSymbol(bot: row.bot)
                 Text(row.bot.name).font(Theme.F.cardTitle).foregroundStyle(Theme.text).lineLimit(1)
                 Pill(text: "Saved", tone: .violet, uppercase: true)
                 Spacer(minLength: 6)
                 if let at = row.bot.savedAt { BoardTime(text: Fmt.clockOrDate(at, now: now)) }
             }
             Text(row.step).font(Theme.F.body).foregroundStyle(Theme.text2).lineLimit(2)
-            OpenChatButton(bot: row.bot, compact: true).padding(.top, 4)
+            FlowLayout(spacing: 6).callAsFunction {
+                OpenChatButton(bot: row.bot, compact: true)
+                SaveForLaterButton(model: model, bot: row.bot)
+            }
+            .padding(.top, 4)
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)

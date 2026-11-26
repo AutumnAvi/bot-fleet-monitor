@@ -81,8 +81,30 @@ struct Bot: Decodable, Hashable {
     var lastReportAt: Double?
     /// When it was put in Save for later; null when it is not saved.
     var savedAt: Double?
+    /// Its look in the Grok Bot app; null when never set.
+    var avatar: BotAvatar?
 
     var key: String { "\(account.rawValue):\(id)" }
+}
+
+/// `{shape, color}` from the bot's Grok Bot profile. Kept as strings: an unknown value draws the
+/// initials fallback instead of failing the whole reply.
+struct BotAvatar: Decodable, Hashable {
+    var shape: String?
+    var color: String?
+
+    private enum Keys: String, CodingKey { case shape, color }
+
+    init(shape: String?, color: String?) {
+        self.shape = shape
+        self.color = color
+    }
+
+    init(from decoder: Decoder) throws {
+        guard let c = try? decoder.container(keyedBy: Keys.self) else { return }
+        shape = try? c.decodeIfPresent(String.self, forKey: .shape)
+        color = try? c.decodeIfPresent(String.self, forKey: .color)
+    }
 }
 
 struct ActivityItem: Decodable, Hashable {
@@ -191,5 +213,9 @@ struct GrokUsage: Decodable, Hashable {
     var pctUsed: Double
     var resetAt: Double?
     var reportedAt: Double?
+    /// When the numbers were read from Grok Bot's usage report. Older servers send only `reportedAt`.
+    var asOf: Double?
     var bots: [GrokBotUsage]
+
+    var readAt: Double? { asOf ?? reportedAt }
 }

@@ -28,7 +28,7 @@ struct DashboardView: View {
     }
 }
 
-/// Top bar, connection banner, usage strip, then the selected tab. Reflows by window width.
+/// Top bar, connection banner, usage bars, coding sessions strip, then the selected tab. Reflows by window width.
 struct FleetWindow: View {
     @ObservedObject var model: FleetModel
     let state: FleetState
@@ -42,6 +42,7 @@ struct FleetWindow: View {
                     StatusBanner(model: model, problem: problem)
                 }
                 UsageStrip(state: state, now: model.now)
+                SessionsStrip(d: d)
                 Rectangle().fill(Theme.line).frame(height: 1)
                 Group {
                     switch model.tab {
@@ -53,6 +54,8 @@ struct FleetWindow: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             }
             .environment(\.widthClass, WidthClass(width: geo.size.width))
+            .overlay(alignment: .bottom) { SaveToastView(model: model) }
+            .animation(.easeOut(duration: 0.2), value: model.toast)
         }
         .background(Theme.bg)
     }
