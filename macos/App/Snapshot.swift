@@ -136,7 +136,8 @@ enum Snapshot {
                 return "\(m.label) \(value)"
             }
             let reset = card.resetAt.map { MonitorRules.resetText($0, now: d.now) } ?? "-"
-            print("ACCOUNT \(card.name) | \(numbers.joined(separator: ", ")) | \(card.signal.label) | resets \(reset)\(card.useFirst ? " | Use first" : "") | active=\(card.active.total) (\(card.active.builds) builds, \(card.active.reviewers) reviewers)")
+            print("ACCOUNT \(card.name) | \(numbers.joined(separator: ", ")) | \(card.signal.label) | resets \(reset)\(card.useFirst ? " | Use first" : "")")
+            if card.active.total > 0 { print("ACTIVE \(card.name) | \(card.active.total) | \(card.active.help)") }
         }
         print("ACCOUNTS \(MonitorRules.headerText(cards))")
         print("BANNER \(MonitorRules.banner(cards, now: d.now)?.text ?? "none")")

@@ -66,7 +66,7 @@ jobs:
           "$BIN" --snapshot "$LIVE" shots/live/monitor-dark.png tab=monitor dark > /dev/null
           "$BIN" --snapshot "$LIVE" shots/live/fixture-switch-banner.png tab=monitor usage=switch > shots/live/switch.log
           cat shots/focus.log
-          cat shots/monitor.log shots/monitor-switch.log shots/live/monitor.log | grep -E '^(ACCOUNT|ACCOUNTS|BANNER|MONITOR|MSESSION|RECENT|WROTE) '
+          cat shots/monitor.log shots/monitor-switch.log shots/live/monitor.log | grep -E '^(ACCOUNT|ACCOUNTS|ACTIVE|BANNER|MONITOR|MSESSION|  MHELPER|RECENT|WROTE) '
           # Monitor: signals, Use first only on Main Claude, no banner while nothing is at Switch now.
           grep -F 'ACCOUNT Main Claude | 5-hour 38%, Weekly 29% | OK | resets 3:49 PM | Use first' shots/monitor.log
           grep -F 'ACCOUNT Admin Claude | 5-hour 82%, Weekly 29% | Near limit' shots/monitor.log
@@ -75,7 +75,7 @@ jobs:
           grep -F 'BANNER none' shots/monitor.log
           if grep -E '^ACCOUNT (API|.*API ·)' shots/monitor.log; then exit 1; fi
           # Sessions: owner names, cleaned titles, live first; recently used by activity, no [TEST].
-          grep -F 'MONITOR sessions=9 live=6' shots/monitor.log
+          grep -F 'MONITOR sessions=10 live=7' shots/monitor.log
           grep -F 'MSESSION T3 | Folder sync v2 · PR #48 | Finished | Dropbox Rebuild PM | Main Claude | 52m' shots/monitor.log
           grep -F 'RECENT Chief | Live | now | Designing the merged Fleet monitor' shots/monitor.log
           grep -F 'RECENT Dropbox Rebuild PM | Needs you | needs you | 1m | Wants your review of PR #48' shots/monitor.log
@@ -83,6 +83,17 @@ jobs:
           grep -F 'RECENT Marketing Portal PM | Saved | 3h' shots/monitor.log
           grep -F 'RECENT Matter Rebuild PM | Paused · limit | 1m' shots/monitor.log
           if grep -F '[TEST]' shots/monitor.log; then exit 1; fi
+          # Active bubble: live sessions plus running reviewers per account (Cursor cloud on Cursor); none at 0.
+          grep -Fx 'ACTIVE Main Claude | 3 | 3 builds running' shots/monitor.log
+          grep -Fx 'ACTIVE Admin Claude | 1 | 1 build running' shots/monitor.log
+          grep -Fx 'ACTIVE Cursor | 4 | 2 builds · 2 reviewers running' shots/monitor.log
+          if grep -E '^ACTIVE (Codex|Grok)' shots/monitor.log; then exit 1; fi
+          # Council reviewers under their session: own row, account, round, steps; legacy name format parsed too.
+          grep -Fx '  MHELPER Opus | Reviewer · Admin Claude · r2/5 | Done | 4m' shots/monitor.log
+          grep -Fx '  MHELPER Codex | Reviewer · Codex · r2/5 | Done | 5m' shots/monitor.log
+          grep -Fx '  MHELPER Gemini Neon | Reviewer · Cursor · r2/5 · 3/4 steps | Running | 7m' shots/monitor.log
+          grep -Fx '  MHELPER Grok | Reviewer · Cursor · r2/5 | Running | 6m' shots/monitor.log
+          grep -Fx '  MHELPER lint | 1/2 steps | Running | <1m' shots/monitor.log
           # Fixture: Main Claude at Switch now, so Use first and the banner point to Cursor. Never to Admin Claude or Codex.
           grep -F 'ACCOUNT Main Claude | 5-hour 96%, Weekly 29% | Switch now' shots/monitor-switch.log
           grep -E '^ACCOUNT Cursor \| Models 81%, Other 62% \| Near limit \| .* \| Use first$' shots/monitor-switch.log
@@ -98,11 +109,11 @@ jobs:
           grep -F 'BANNER Switch now · Main Claude · 5-hour 96%' shots/live/switch.log
           grep -E '^BANNER .* · Use Cursor$' shots/live/switch.log
           # Decoded the whole reply, and every bot landed in exactly one column.
-          grep -F 'STATE version=2 bots=36 attention=5 sessions=9 accounts=6 grok=2 activity=36' shots/focus.log
+          grep -F 'STATE version=2 bots=36 attention=5 sessions=10 accounts=6 grok=2 activity=36' shots/focus.log
           grep -F 'PARTITION attention=5 saved=1 working=7 idle=23 rows=36' shots/focus.log
           # Summaries hidden and the repeated Internal DAM message folded into its status.
           grep -F 'ACTIVITY raw=36 visible=32' shots/focus.log
-          grep -F 'STRIP sessions=9 running=6' shots/focus.log
+          grep -F 'STRIP sessions=10 running=7' shots/focus.log
           # Later on the first bot: it moves to Saved at once (also off the menu bar count) and the toast offers Undo.
           grep -F 'TOAST Saved for later · Undo=Dropbox Rebuild PM | saved=2 attention=4 menu=4' shots/toast.log
           grep -F 'SYMBOLS shapes=11 initials=25' shots/focus.log
