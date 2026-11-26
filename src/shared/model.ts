@@ -207,7 +207,14 @@ export interface GrokUsage {
   account: Account;
   pctUsed: number;
   resetAt: number | null;
+  /** When the Worker received this report (ms). */
   reportedAt: number;
+  /**
+   * When the numbers were read from Grok Bot's usage report (ms): the pusher's
+   * `asOf`, capped at the receive time, or the receive time when it sent none.
+   * The app shows "as of <time>".
+   */
+  asOf: number;
   bots: GrokBotUsage[];
 }
 

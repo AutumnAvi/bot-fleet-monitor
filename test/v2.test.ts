@@ -1,3 +1,4 @@
+import { abortAllDurableObjects } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import { containsSecret } from "../src/lib/sanitize";
 import { parseSessionsPayload } from "../src/lib/validate";
@@ -222,6 +223,32 @@ describe("usage and grok plan", () => {
     expect(grok[0]?.account).toBe("work");
     expect(grok[0]?.bots.map((bot) => bot.botId)).toEqual(["a", "b"]);
     expect(grok[0]?.bots[0]?.routinesShare).toBe(18);
+    // No asOf sent: the receive time.
+    expect(grok[0]?.asOf).toBe(grok[0]?.reportedAt);
+  });
+
+  it("keeps the pusher's asOf (ISO or ms), capped at the receive time", async () => {
+    const base = { account: "work", pctUsed: 12, resetAt: null, bots: [] };
+    const readAt = Date.now() - 20 * 60_000;
+    expect((await ingest("grok-usage", { ...base, asOf: new Date(readAt).toISOString() }, WORK_KEY)).status).toBe(200);
+    let grok = (await getJson<StateResponse>("/api/v1/state", await sessionCookie())).grok;
+    expect(grok[0]?.asOf).toBe(readAt);
+    expect(grok[0]?.reportedAt).toBeGreaterThan(readAt);
+
+    expect((await ingest("grok-usage", { ...base, asOf: Date.now() + 3_600_000 }, WORK_KEY)).status).toBe(200);
+    grok = (await getJson<StateResponse>("/api/v1/state", await sessionCookie())).grok;
+    expect(grok[0]?.asOf).toBe(grok[0]?.reportedAt);
+
+    expect((await ingest("grok-usage", { ...base, asOf: "yesterday-ish" }, WORK_KEY)).status).toBe(400);
+  });
+
+  it("returns asOf for a row stored before the column existed", async () => {
+    await ingest("grok-usage", { account: "leaf", pctUsed: 5, resetAt: null, bots: [] }, LEAF_KEY);
+    await sql("ALTER TABLE grok_usage DROP COLUMN as_of");
+    await abortAllDurableObjects();
+    const grok = (await getJson<StateResponse>("/api/v1/state", await sessionCookie())).grok;
+    expect(grok[0]).toMatchObject({ account: "leaf", pctUsed: 5 });
+    expect(grok[0]?.asOf).toBe(grok[0]?.reportedAt);
   });
 });
 

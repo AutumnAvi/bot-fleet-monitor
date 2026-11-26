@@ -255,6 +255,8 @@ export interface GrokUsagePayload {
   account: Account;
   pctUsed: number;
   resetAt: number | null;
+  /** When the pusher read the numbers; null means "now" (the receive time). */
+  asOf: number | null;
   bots: GrokBotUsage[];
 }
 
@@ -622,7 +624,7 @@ function parseGrokBot(raw: unknown, index: number): GrokBotUsage {
 
 export function parseGrokUsagePayload(raw: unknown, account: Account): GrokUsagePayload {
   const obj = objectBody(raw);
-  onlyFields(obj, ["account", "pctUsed", "resetAt", "bots"], "grok-usage");
+  onlyFields(obj, ["account", "pctUsed", "resetAt", "asOf", "bots"], "grok-usage");
   if (!("resetAt" in obj)) throw bad('"resetAt" is required');
   const claimed = optionalString(obj, "account");
   if (claimed === undefined) throw bad('"account" is required');
@@ -642,6 +644,7 @@ export function parseGrokUsagePayload(raw: unknown, account: Account): GrokUsage
     account,
     pctUsed: percent(obj.pctUsed, "pctUsed"),
     resetAt: timestamp(obj.resetAt, "resetAt", false),
+    asOf: timestamp(obj.asOf, "asOf", false),
     bots,
   };
   return payload;

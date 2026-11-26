@@ -206,6 +206,7 @@ export class FleetStore extends DurableObject<Env> {
     this.addColumnIfMissing("bots", "saved_at", "INTEGER");
     this.addColumnIfMissing("bots", "avatar_shape", "TEXT");
     this.addColumnIfMissing("bots", "avatar_color", "TEXT");
+    this.addColumnIfMissing("grok_usage", "as_of", "INTEGER");
     const bots = (seedFile as { bots?: unknown }).bots;
     const version = seedVersion(bots);
     const current = this.sql
@@ -607,15 +608,17 @@ export class FleetStore extends DurableObject<Env> {
     const limit = this.hitRateLimit(`grok:${account}`, LIMITS.grokUsagePerMinute, 60_000, now);
     if (!limit.ok) return { ok: false, retryAfterSec: limit.retryAfterSec };
     this.sql.exec(
-      `INSERT INTO grok_usage (account, pct_used, reset_at, bots_json, received_at) VALUES (?, ?, ?, ?, ?)
+      `INSERT INTO grok_usage (account, pct_used, reset_at, bots_json, received_at, as_of) VALUES (?, ?, ?, ?, ?, ?)
        ON CONFLICT (account) DO UPDATE SET
          pct_used = excluded.pct_used, reset_at = excluded.reset_at,
-         bots_json = excluded.bots_json, received_at = excluded.received_at`,
+         bots_json = excluded.bots_json, received_at = excluded.received_at, as_of = excluded.as_of`,
       account,
       payload.pctUsed,
       payload.resetAt,
       JSON.stringify(payload.bots),
       now,
+      // A clock ahead of ours must not make old numbers look fresh.
+      Math.min(payload.asOf ?? now, now),
     );
     return { ok: true };
   }
@@ -731,8 +734,15 @@ export class FleetStore extends DurableObject<Env> {
 
   private grokUsage(): GrokUsage[] {
     const rows = this.sql
-      .exec<{ account: string; pct_used: number; reset_at: number | null; bots_json: string; received_at: number }>(
-        "SELECT account, pct_used, reset_at, bots_json, received_at FROM grok_usage",
+      .exec<{
+        account: string;
+        pct_used: number;
+        reset_at: number | null;
+        bots_json: string;
+        received_at: number;
+        as_of: number | null;
+      }>(
+        "SELECT account, pct_used, reset_at, bots_json, received_at, as_of FROM grok_usage",
       )
       .toArray();
     const out: GrokUsage[] = [];
@@ -755,6 +765,7 @@ export class FleetStore extends DurableObject<Env> {
         pctUsed: row.pct_used,
         resetAt: row.reset_at,
         reportedAt: row.received_at,
+        asOf: row.as_of ?? row.received_at,
         bots,
       });
     }
