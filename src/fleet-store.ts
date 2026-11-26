@@ -31,7 +31,7 @@ import {
 import { STALE_AFTER_MS } from "./shared/model";
 import { buildFleetView } from "./shared/fleet-view";
 import { cleanLine } from "./lib/sanitize";
-import type { GrokUsagePayload, IngestPayload, SessionsPayload, UsagePayload } from "./lib/validate";
+import { parseAvatar, type GrokUsagePayload, type IngestPayload, type SessionsPayload, type UsagePayload } from "./lib/validate";
 
 export type IngestResult =
   | { ok: true; created: boolean }
@@ -64,6 +64,8 @@ interface BotRow extends Record<string, SqlStorageValue> {
   last_avi_reply_at: number | null;
   last_report_at: number | null;
   saved_at: number | null;
+  avatar_shape: string | null;
+  avatar_color: string | null;
   unread: number;
 }
 
@@ -202,6 +204,8 @@ export class FleetStore extends DurableObject<Env> {
   private migrate(now: number): void {
     this.sql.exec(SCHEMA);
     this.addColumnIfMissing("bots", "saved_at", "INTEGER");
+    this.addColumnIfMissing("bots", "avatar_shape", "TEXT");
+    this.addColumnIfMissing("bots", "avatar_color", "TEXT");
     const bots = (seedFile as { bots?: unknown }).bots;
     const version = seedVersion(bots);
     const current = this.sql
@@ -364,6 +368,18 @@ export class FleetStore extends DurableObject<Env> {
       const bot = resolved.bot;
       switch (payload.kind) {
         case "status": {
+          // A report without a (valid) avatar keeps the stored one.
+          if (payload.avatar !== null) {
+            this.sql.exec(
+              "UPDATE bots SET avatar_shape = ?, avatar_color = ?, updated_at = ? WHERE account = ? AND id = ?",
+              payload.avatar.shape,
+              payload.avatar.color,
+              now,
+              account,
+              bot.id,
+            );
+          }
+          if (payload.status === null) break; // avatar-only
           const stored: StoredStatus = payload.status === "done" ? "idle" : payload.status;
           this.sql.exec(
             "UPDATE bots SET status = ?, step = ?, status_at = ?, updated_at = ? WHERE account = ? AND id = ?",
@@ -438,14 +454,18 @@ export class FleetStore extends DurableObject<Env> {
           break;
         }
       }
-      // Any accepted report counts as a sign of life for the stale-working timer.
-      this.sql.exec(
-        "UPDATE bots SET last_report_at = ?, updated_at = ? WHERE account = ? AND id = ?",
-        now,
-        now,
-        account,
-        bot.id,
-      );
+      // Any accepted report counts as a sign of life for the stale-working timer,
+      // except an avatar-only one (a backfill sent on the bot's behalf).
+      const avatarOnly = payload.kind === "status" && payload.status === null;
+      if (!avatarOnly) {
+        this.sql.exec(
+          "UPDATE bots SET last_report_at = ?, updated_at = ? WHERE account = ? AND id = ?",
+          now,
+          now,
+          account,
+          bot.id,
+        );
+      }
       result = { ok: true, created: resolved.created };
     });
     return result;
@@ -607,6 +627,7 @@ export class FleetStore extends DurableObject<Env> {
       .exec<BotRow>(
         `SELECT b.account, b.id, b.name, b.grp, b.sort_index, b.status, b.step, b.status_at,
                 b.summary, b.summary_at, b.last_avi_reply_at, b.last_report_at, b.saved_at,
+                b.avatar_shape, b.avatar_color,
                 (SELECT COUNT(*) FROM messages m WHERE m.account = b.account AND m.bot_id = b.id) AS unread
          FROM bots b ${where}
          ORDER BY b.sort_index, b.name COLLATE NOCASE`,
@@ -745,6 +766,7 @@ export class FleetStore extends DurableObject<Env> {
       .exec<BotRow>(
         `SELECT b.account, b.id, b.name, b.grp, b.sort_index, b.status, b.step, b.status_at,
                 b.summary, b.summary_at, b.last_avi_reply_at, b.last_report_at, b.saved_at,
+                b.avatar_shape, b.avatar_color,
                 (SELECT COUNT(*) FROM messages m WHERE m.account = b.account AND m.bot_id = b.id) AS unread
          FROM bots b WHERE b.account = ? AND b.id = ?`,
         account,
@@ -801,5 +823,6 @@ function toBotView(row: BotRow): BotView {
     lastAviReplyAt: row.last_avi_reply_at,
     lastReportAt: row.last_report_at,
     savedAt: row.saved_at,
+    avatar: parseAvatar({ shape: row.avatar_shape, color: row.avatar_color }),
   };
 }

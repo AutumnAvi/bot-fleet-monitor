@@ -22,6 +22,7 @@ function bot(partial: Partial<BotView> & Pick<BotView, "id">): BotView {
     lastAviReplyAt: null,
     lastReportAt: null,
     savedAt: null,
+    avatar: null,
     ...partial,
   };
 }
@@ -217,6 +218,7 @@ describe("payload validation", () => {
       botId: "abc",
       status: "done",
       step: "Shipped",
+      avatar: null,
     });
     expect(parseIngestPayload("avi-replied", "leaf", { botId: "x", group: "Leaf account" })).toEqual({
       kind: "avi-replied",

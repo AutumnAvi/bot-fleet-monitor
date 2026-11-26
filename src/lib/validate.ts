@@ -1,6 +1,8 @@
 // Parses and validates ingest payloads. Produces clean values or a client error.
 
 import {
+  AVATAR_COLORS,
+  AVATAR_SHAPES,
   INGEST_STATUSES,
   LEAF_GROUP,
   LIMITS,
@@ -13,6 +15,7 @@ import {
   WORK_GROUPS,
   type Account,
   type AttentionReason,
+  type BotAvatar,
   type CodingSession,
   type GrokBotUsage,
   type IngestStatus,
@@ -51,7 +54,11 @@ export interface BotRef {
 }
 
 export type IngestPayload =
-  | (BotRef & { kind: "status"; status: IngestStatus; step: string | null })
+  /**
+   * `status: null` is an avatar-only report: it sets the symbol and changes nothing
+   * else (no status time, no event, no sign of life).
+   */
+  | (BotRef & { kind: "status"; status: IngestStatus | null; step: string | null; avatar: BotAvatar | null })
   | (BotRef & { kind: "summary"; summary: string | null })
   | (BotRef & { kind: "message"; text: string })
   | (BotRef & { kind: "avi-replied" })
@@ -72,7 +79,7 @@ const BOT_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]*$/;
 
 const COMMON_FIELDS = ["botId", "name", "group", "account"];
 const KIND_FIELDS: Record<BotKind, string[]> = {
-  status: ["status", "step"],
+  status: ["status", "step", "avatar"],
   summary: ["summary"],
   message: ["text"],
   "avi-replied": [],
@@ -88,6 +95,21 @@ function optionalString(obj: Record<string, unknown>, key: string): string | und
   if (value === undefined || value === null) return undefined;
   if (typeof value !== "string") throw bad(`"${key}" must be a string`);
   return value;
+}
+
+/**
+ * `{shape, color}` from the fixed lists, or null. Anything else (unknown shape or
+ * color, wrong type, extra keys) is ignored rather than rejected, so a bot on a newer
+ * Grok Bot build never loses its status report over a look we do not know yet.
+ */
+export function parseAvatar(value: unknown): BotAvatar | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  const { shape, color } = value as { shape?: unknown; color?: unknown };
+  if (typeof shape !== "string" || typeof color !== "string") return null;
+  const s = shape.trim().toLowerCase();
+  const c = color.trim().toLowerCase();
+  if (!(AVATAR_SHAPES as readonly string[]).includes(s) || !(AVATAR_COLORS as readonly string[]).includes(c)) return null;
+  return { shape: s as BotAvatar["shape"], color: c as BotAvatar["color"] };
 }
 
 export function parseIngestPayload(
@@ -140,13 +162,18 @@ export function parseIngestPayload(
 
   switch (kind) {
     case "status": {
+      const avatar = parseAvatar(obj.avatar);
       const status = optionalString(obj, "status");
+      const stepRaw = optionalString(obj, "step");
+      // Avatar-only report (the backfill): no status and no step, just a valid avatar.
+      if (status === undefined && stepRaw === undefined && avatar !== null) {
+        return { ...ref, kind, status: null, step: null, avatar };
+      }
       if (status === undefined || !(INGEST_STATUSES as readonly string[]).includes(status)) {
         throw bad(`"status" must be one of: ${INGEST_STATUSES.join(", ")}`);
       }
-      const stepRaw = optionalString(obj, "step");
       const step = stepRaw === undefined ? null : cleanLine(stepRaw, LIMITS.stepChars) || null;
-      return { ...ref, kind, status: status as IngestStatus, step };
+      return { ...ref, kind, status: status as IngestStatus, step, avatar };
     }
     case "summary": {
       const summaryRaw = optionalString(obj, "summary");

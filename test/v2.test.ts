@@ -280,6 +280,7 @@ describe("session list helpers", () => {
         lastAviReplyAt: null,
         lastReportAt: 1,
         savedAt: null,
+        avatar: null,
       },
     ];
     const live = parseSessionsPayload({ sessions: [session({ id: "live" })] }).sessions[0];
