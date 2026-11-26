@@ -81,6 +81,7 @@ jobs:
           grep -F 'RECENT Dropbox Rebuild PM | Needs you | needs you | 1m | Wants your review of PR #48' shots/monitor.log
           grep -F 'RECENT Researcher | Idle | 1h | Cloudinary vs Dropbox cost memo shared' shots/monitor.log
           grep -F 'RECENT Marketing Portal PM | Saved | 3h' shots/monitor.log
+          grep -F 'RECENT Matter Rebuild PM | Paused · limit | 1m' shots/monitor.log
           if grep -F '[TEST]' shots/monitor.log; then exit 1; fi
           # Fixture: Main Claude at Switch now, so Use first and the banner point to Cursor. Never to Admin Claude or Codex.
           grep -F 'ACCOUNT Main Claude | 5-hour 96%, Weekly 29% | Switch now' shots/monitor-switch.log

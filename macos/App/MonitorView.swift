@@ -315,7 +315,9 @@ struct SwitchBannerView: View {
                 .background(Capsule().fill(Theme.fill(.red))).fixedSize()
             Text(banner.hot.joined(separator: "   ")).font(Theme.F.bodyBold).foregroundStyle(Theme.fg(.red))
                 .lineLimit(1).truncationMode(.tail)
-            Text(banner.advice).font(Theme.F.bodyBold).foregroundStyle(Theme.text).lineLimit(1).fixedSize()
+            if !banner.advice.isEmpty {
+                Text(banner.advice).font(Theme.F.bodyBold).foregroundStyle(Theme.text).lineLimit(1).fixedSize()
+            }
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 16).padding(.vertical, 6)
@@ -358,7 +360,8 @@ private struct MonitorSessionRow: View {
                 Text(Sessions.title(session, helpers: false)).font(active ? Theme.F.bodyBold : Theme.F.body)
                     .foregroundStyle(active ? Theme.text : Theme.text2).lineLimit(1).truncationMode(.tail)
                 (Text("started by ").foregroundStyle(Theme.text3)
-                 + Text(owner).fontWeight(.medium).foregroundStyle(active ? Theme.text2 : Theme.text3))
+                 + Text(owner).fontWeight(.medium).foregroundStyle(active ? Theme.text2 : Theme.text3)
+                 + Text(width == .narrow ? " · \(MonitorRules.poolName(session))" : "").foregroundStyle(Theme.text3))
                     .font(Theme.F.small).lineLimit(1)
             }
             .layoutPriority(1)
@@ -384,7 +387,7 @@ private struct MonitorSessionRow: View {
         if Sessions.displayStatus(session) == "paused_limit", let reset = session.limitReset {
             return "↻ \(Fmt.reset(reset, now: now))"
         }
-        return Fmt.hoursMinutes((session.finishedAt ?? now) - session.startedAt)
+        return MonitorRules.runtime(session, now: now)
     }
 
     private var tooltip: String {

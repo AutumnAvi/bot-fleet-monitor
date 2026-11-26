@@ -169,6 +169,7 @@ enum Rules {
     static func activityDetail(kind: String, detail: String?) -> String? {
         guard let detail, !detail.isEmpty, kind != "summary" else { return nil }
         let text = clean(detail)
+        guard !text.isEmpty else { return nil }
         return kind == "message" ? "“\(text)”" : text
     }
 

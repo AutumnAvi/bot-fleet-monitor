@@ -143,8 +143,8 @@ enum Snapshot {
         let sessions = MonitorRules.sessions(d)
         print("MONITOR sessions=\(sessions.count) live=\(sessions.filter(Sessions.isLive).count)")
         for s in sessions {
-            let runtime = Fmt.hoursMinutes((s.finishedAt ?? d.now) - s.startedAt)
-            print("MSESSION \(Sessions.toolLabel(s)) | \(Sessions.title(s)) | \(Sessions.statusLabel(s)) | \(MonitorRules.shortName(d.ownerName(of: s))) | \(MonitorRules.poolName(s)) | \(runtime)")
+            let runtime = MonitorRules.runtime(s, now: d.now)
+            print("MSESSION \(Sessions.toolLabel(s)) | \(Sessions.title(s, helpers: false)) | \(Sessions.statusLabel(s)) | \(MonitorRules.shortName(d.ownerName(of: s))) | \(MonitorRules.poolName(s)) | \(runtime)")
         }
         for bot in MonitorRules.recentBots(d) {
             print("RECENT \(MonitorRules.shortName(bot.row.bot.name)) | \(bot.status)\(bot.needsYou ? " | needs you" : "") | \(Fmt.age(bot.lastAt, now: d.now)) | \(bot.line)")

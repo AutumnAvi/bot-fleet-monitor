@@ -242,7 +242,8 @@ enum Sessions {
     static func cleanTitle(_ raw: String) -> String {
         var out = Rules.clean(raw)
         if let range = out.range(of: #"^\[[^\]]{1,60}\]\s*"#, options: .regularExpression) { out.removeSubrange(range) }
-        let date = #"\s+[-–—]\s+(\d{4}-\d{2}-\d{2}|[A-Z][a-z]{2,8}\.? \d{1,2}(,? \d{4})?)$"#
+        let month = "(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[a-z]*"
+        let date = #"\s+[-–—]\s+(\d{4}-\d{2}-\d{2}|"# + month + #"\.? \d{1,2}(,? \d{4})?)$"#
         if let range = out.range(of: date, options: .regularExpression) { out.removeSubrange(range) }
         out = out.trimmingCharacters(in: .whitespaces)
         return out.isEmpty ? raw : out

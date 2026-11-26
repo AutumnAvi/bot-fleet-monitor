@@ -44,12 +44,9 @@ struct MonitorMeter: Hashable {
     var used: Double?
     var noLimit = false
     var resetAt: Double?
-    var fiveHour = false
 
-    var signal: UsageSignal {
-        if fiveHour && (used ?? 0) >= 100 { return .switchNow }
-        return UsageSignal.of(used: used)
-    }
+    /// An exhausted 5-hour window is at 100%, so it is already Switch now.
+    var signal: UsageSignal { UsageSignal.of(used: used) }
 }
 
 /// One tile on the accounts strip.
@@ -83,12 +80,12 @@ struct AccountCard: Hashable {
 struct SwitchBanner: Hashable {
     /// "Main Claude · 5-hour 96% · resets 7:12 PM", one per hot account.
     var hot: [String]
-    /// "Use Cursor", or why there is nowhere to switch.
+    /// "Use Cursor", "No room on Main Claude or Cursor", or empty when neither is on the strip.
     var advice: String
     /// Main Claude or Cursor; nil when neither has room.
     var target: String?
 
-    var text: String { (["Switch now"] + hot + [advice]).joined(separator: " · ") }
+    var text: String { (["Switch now"] + hot + [advice]).filter { !$0.isEmpty }.joined(separator: " · ") }
 }
 
 /// A row in Recently used.
@@ -116,25 +113,28 @@ enum MonitorRules {
 
     /// Main Claude, Admin Claude, Cursor, Codex, Grok · Work, then Grok · Admin once it has been
     /// pushed. API pools are not on this strip. Accounts that never reported are left out.
+    /// A window whose reset time has passed counts as reset (0%), so a reading from before the
+    /// reset never says Switch now.
     static func accounts(_ state: FleetState) -> [AccountCard] {
         var cards: [AccountCard] = []
+        let now = state.now
         let byId = Dictionary(state.accounts.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
-        if let a = byId["claudeMax"] { cards.append(windowed(a, kind: .mainClaude, name: "Main Claude")) }
-        if let a = byId["claudeAdmin"] { cards.append(windowed(a, kind: .adminClaude, name: "Admin Claude")) }
-        if let a = byId["cursor"] { cards.append(cursor(a)) }
-        if let a = byId["codex"] { cards.append(windowed(a, kind: .codex, name: "Codex")) }
-        if let g = state.grok.first(where: { $0.account == .work }) { cards.append(grok(g, kind: .grokWork, name: "Grok · Work")) }
-        if let g = state.grok.first(where: { $0.account == .leaf }) { cards.append(grok(g, kind: .grokAdmin, name: "Grok · Admin")) }
+        if let a = byId["claudeMax"] { cards.append(windowed(a, kind: .mainClaude, name: "Main Claude", now: now)) }
+        if let a = byId["claudeAdmin"] { cards.append(windowed(a, kind: .adminClaude, name: "Admin Claude", now: now)) }
+        if let a = byId["cursor"] { cards.append(cursor(a, now: now)) }
+        if let a = byId["codex"] { cards.append(windowed(a, kind: .codex, name: "Codex", now: now)) }
+        if let g = state.grok.first(where: { $0.account == .work }) { cards.append(grok(g, kind: .grokWork, name: "Grok · Work", now: now)) }
+        if let g = state.grok.first(where: { $0.account == .leaf }) { cards.append(grok(g, kind: .grokAdmin, name: "Grok · Admin", now: now)) }
         cards = cards.filter { card in card.meters.contains { $0.used != nil || $0.noLimit } }
         if let i = useFirstIndex(cards) { cards[i].useFirst = true }
         return cards
     }
 
     /// Main Claude while it has room; Cursor when Main needs a switch and Cursor has room. Never
-    /// Admin Claude or Codex.
+    /// Admin Claude or Codex, and nothing while Main Claude has not reported.
     static func useFirstIndex(_ cards: [AccountCard]) -> Int? {
-        let main = cards.firstIndex { $0.kind == .mainClaude }
-        if let main, cards[main].signal != .switchNow { return main }
+        guard let main = cards.firstIndex(where: { $0.kind == .mainClaude }) else { return nil }
+        if cards[main].signal != .switchNow { return main }
         if let cursor = cards.firstIndex(where: { $0.kind == .cursor }), cards[cursor].signal != .switchNow { return cursor }
         return nil
     }
@@ -143,7 +143,8 @@ enum MonitorRules {
         let hot = cards.filter { $0.signal == .switchNow }
         if hot.isEmpty { return nil }
         let target = cards.first { $0.useFirst && $0.canTakeWork }?.name
-        let advice = target.map { "Use \($0)" } ?? "No room on Main Claude or Cursor"
+        let full = cards.filter(\.canTakeWork).map(\.name)
+        let advice = target.map { "Use \($0)" } ?? (full.isEmpty ? "" : "No room on \(full.joined(separator: " or "))")
         return SwitchBanner(hot: hot.map { hotText($0, now: now) }, advice: advice, target: target)
     }
 
@@ -167,9 +168,9 @@ enum MonitorRules {
     }
 
     /// Claude and Codex: the 5-hour window is the big number unless it has no limit; then the weekly.
-    private static func windowed(_ a: UsageAccount, kind: AccountCard.Kind, name: String) -> AccountCard {
-        let five = Usage.fiveHour(a).map { meter($0, label: "5-hour", fiveHour: true) }
-        let week = Usage.weekly(a).map { meter($0, label: "Weekly") }
+    private static func windowed(_ a: UsageAccount, kind: AccountCard.Kind, name: String, now: Double) -> AccountCard {
+        let five = Usage.fiveHour(a).map { meter($0, label: "5-hour", now: now) }
+        let week = Usage.weekly(a).map { meter($0, label: "Weekly", now: now) }
         var headline: [MonitorMeter] = []
         var others: [MonitorMeter] = []
         if let five, !five.noLimit, five.used != nil {
@@ -179,34 +180,44 @@ enum MonitorRules {
             headline = [week]
             if let five { others.append(five) }
         } else if let primary = Usage.primary(a) {
-            headline = [meter(primary, label: primary.label)]
+            headline = [meter(primary, label: primary.label, now: now)]
         }
         return AccountCard(kind: kind, name: name, headline: headline, others: others,
                            resetAt: reset(headline + others))
     }
 
     /// Cursor: Models and Other side by side. The plan month stays off the tile.
-    private static func cursor(_ a: UsageAccount) -> AccountCard {
-        let models = a.meters.first { $0.id == "cursor-models" }.map { meter($0, label: "Models") }
-        let other = a.meters.first { $0.id == "other-models" }.map { meter($0, label: "Other") }
+    private static func cursor(_ a: UsageAccount, now: Double) -> AccountCard {
+        let models = a.meters.first { $0.id == "cursor-models" }.map { meter($0, label: "Models", now: now) }
+        let other = a.meters.first { $0.id == "other-models" }.map { meter($0, label: "Other", now: now) }
         var headline = [models, other].compactMap { $0 }
-        if headline.isEmpty, let primary = Usage.primary(a) { headline = [meter(primary, label: primary.label)] }
+        if headline.isEmpty, let primary = Usage.primary(a) { headline = [meter(primary, label: primary.label, now: now)] }
         return AccountCard(kind: .cursor, name: "Cursor", headline: headline, others: [], resetAt: reset(headline))
     }
 
-    private static func grok(_ g: GrokUsage, kind: AccountCard.Kind, name: String) -> AccountCard {
-        let used = MonitorMeter(label: "used", used: g.pctUsed, resetAt: g.resetAt)
-        return AccountCard(kind: kind, name: name, headline: [used], others: [], resetAt: g.resetAt)
+    private static func grok(_ g: GrokUsage, kind: AccountCard.Kind, name: String, now: Double) -> AccountCard {
+        let used = fresh(MonitorMeter(label: "used", used: g.pctUsed, resetAt: g.resetAt), now: now)
+        return AccountCard(kind: kind, name: name, headline: [used], others: [], resetAt: used.resetAt)
     }
 
-    private static func meter(_ m: UsageMeter, label: String, fiveHour: Bool = false) -> MonitorMeter {
-        MonitorMeter(label: label, used: m.noLimit ? nil : m.pctUsed, noLimit: m.noLimit, resetAt: m.resetAt,
-                     fiveHour: fiveHour)
+    private static func meter(_ m: UsageMeter, label: String, now: Double) -> MonitorMeter {
+        fresh(MonitorMeter(label: label, used: m.noLimit ? nil : m.pctUsed, noLimit: m.noLimit, resetAt: m.resetAt),
+              now: now)
     }
 
-    /// The reset that matters: the hot meter's, else the soonest one.
+    /// Past its reset time the window has started over: 0% and no reset to show.
+    private static func fresh(_ meter: MonitorMeter, now: Double) -> MonitorMeter {
+        guard let at = meter.resetAt, at <= now else { return meter }
+        var out = meter
+        out.resetAt = nil
+        if out.used != nil { out.used = 0 }
+        return out
+    }
+
+    /// The reset that matters: the hot meter's (the fullest, as in the banner), else the soonest one.
     private static func reset(_ meters: [MonitorMeter]) -> Double? {
-        let hot = meters.filter { $0.signal != .ok }.max { $0.signal < $1.signal }
+        let hot = meters.filter { $0.signal != .ok && $0.resetAt != nil }
+            .max { ($0.signal, $0.used ?? 0) < ($1.signal, $1.used ?? 0) }
         if let at = hot?.resetAt { return at }
         return meters.compactMap(\.resetAt).min()
     }
@@ -228,11 +239,20 @@ enum MonitorRules {
 
     // MARK: Coding sessions
 
-    /// Coding work: a T3, Claude, Cursor or Codex session that is active, or ended and started in
-    /// the last week. Tool-less records (API hand-offs, audits) are not coding sessions, and an
-    /// old session the collector only now closed is not today's work.
+    /// Usage pools coding sessions run on. `tool` is optional in the API; API pools are not coding.
+    private static let codingAccounts: Set<String> = ["claudeMax", "claudeAdmin", "cursor", "cursor-cloud", "codex"]
+
+    /// Coding work: a T3, Claude, Cursor or Codex session (by `tool`, else by account) that is
+    /// active, or ended and started in the last week. A weeks-old session the collector only now
+    /// closed (live data has several, started 16–46 days earlier) is not today's work.
     static func isCodingWork(_ s: CodingSession, now: Double) -> Bool {
-        s.tool != nil && (Sessions.isActive(s) || now - s.startedAt < recentWindowMs)
+        (s.tool != nil || codingAccounts.contains(s.account))
+            && (Sessions.isActive(s) || now - s.startedAt < recentWindowMs)
+    }
+
+    /// "5h 32m": start to now while active, else start to when it ended.
+    static func runtime(_ s: CodingSession, now: Double) -> String {
+        Fmt.hoursMinutes((Sessions.isActive(s) ? now : endedAt(s)) - s.startedAt)
     }
 
     /// Coding sessions that are active or ended in the last 24 hours. Active first, then the most
@@ -308,13 +328,14 @@ enum MonitorRules {
             let needsYou = attention.contains(row.key)
             if d.now - lastAt > recentWindowMs && !needsYou { continue }
             let live = mine.filter(Sessions.isLive).max { activityAt($0) < activityAt($1) }
+            let held = mine.filter { Sessions.isActive($0) && !Sessions.isLive($0) }.max { activityAt($0) < activityAt($1) }
             let sessionNewer = (sessionAt ?? 0) > (own ?? 0)
             var line = ownLine(row, d: d)
             if !needsYou, let session = live ?? (sessionNewer ? latestSession : nil) {
                 line = Sessions.cleanTitle(session.title)
             }
-            let (status, tone) = statusLabel(row, needsYou: needsYou, live: live != nil,
-                                             finished: sessionNewer && latestSession.map(Sessions.isActive) == false)
+            let (status, tone) = statusLabel(row, needsYou: needsYou, live: live != nil, held: held,
+                                             ended: sessionNewer && live == nil && held == nil ? latestSession : nil)
             out.append(RecentBot(row: row, lastAt: lastAt, line: line, status: status, tone: tone, needsYou: needsYou))
         }
         return out.sorted { a, b in
@@ -332,8 +353,10 @@ enum MonitorRules {
         return summaryIsNewer && summary != row.step ? Rules.clean(summary) : step
     }
 
-    /// Needs you, Stuck or Stale; else Live, Saved, Finished or Idle.
-    private static func statusLabel(_ row: BotRow, needsYou: Bool, live: Bool, finished: Bool) -> (String, Tone) {
+    /// Needs you, Stuck or Stale; else Live, a held session's status (Paused · limit, Stalled),
+    /// Saved, the newer ended session's status (Finished, Failed, Stopped), or Idle.
+    private static func statusLabel(_ row: BotRow, needsYou: Bool, live: Bool, held: CodingSession?,
+                                    ended: CodingSession?) -> (String, Tone) {
         if needsYou {
             switch row.state {
             case .error: return ("Stuck", .red)
@@ -341,9 +364,11 @@ enum MonitorRules {
             default: return ("Needs you", .amber)
             }
         }
-        if live || (row.state == .working && row.bot.savedAt == nil) { return ("Live", .green) }
+        if live { return ("Live", .green) }
+        if let held { return (Sessions.statusLabel(held), sessionTone(held)) }
+        if row.state == .working && row.bot.savedAt == nil { return ("Live", .green) }
         if row.bot.savedAt != nil { return ("Saved", .violet) }
-        if finished { return ("Finished", .gray) }
+        if let ended { return (Sessions.statusLabel(ended), sessionTone(ended)) }
         return ("Idle", .gray)
     }
 }
