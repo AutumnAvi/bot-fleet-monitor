@@ -168,7 +168,7 @@ export function parseIngestPayload(
       // Avatar-only report (the backfill): just botId and a valid avatar. No status, step,
       // name or group, so it can never register, rename or regroup a bot.
       const avatarOnly =
-        avatar !== null && !("status" in obj) && !("step" in obj) && ref.name === undefined && ref.group === undefined;
+        avatar !== null && !("status" in obj) && !("step" in obj) && !("name" in obj) && !("group" in obj);
       if (avatarOnly) {
         return { ...ref, kind, status: null, step: null, avatar };
       }

@@ -207,6 +207,8 @@ export function activityDetail(item: Pick<ActivityItem, "kind" | "detail">): str
  */
 export function visibleActivity<T extends ActivityItem>(items: readonly T[]): T[] {
   const out: T[] = [];
+  // True once the last kept row has absorbed an older repeat; then it stays as is.
+  let merged = false;
   for (const item of items) {
     if (item.kind === "summary") continue;
     const prev = out[out.length - 1];
@@ -217,10 +219,15 @@ export function visibleActivity<T extends ActivityItem>(items: readonly T[]): T[
       (item.detail !== null ? prev.detail === item.detail : prev.detail === null && prev.kind === item.kind);
     if (!same) {
       out.push(item);
-    } else if (prev.kind === "message" && (item.kind === "waiting_user" || item.kind === "error")) {
-      // The newer row is kept, except a message copy gives way to the status it repeats.
+      merged = false;
+      continue;
+    }
+    // The newer row is kept, except a message copy gives way to the status right
+    // behind it that it repeats.
+    if (!merged && prev.kind === "message" && (item.kind === "waiting_user" || item.kind === "error")) {
       out[out.length - 1] = item;
     }
+    merged = true;
   }
   return out;
 }

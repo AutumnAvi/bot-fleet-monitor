@@ -120,6 +120,7 @@ describe("avatar storage and state", () => {
     expect((await ingest("status", { botId: CHIEF, name: "Renamed", avatar })).status).toBe(400);
     expect((await ingest("status", { botId: CHIEF, group: "PMs", avatar })).status).toBe(400);
     expect((await ingest("status", { botId: CHIEF, status: null, avatar })).status).toBe(400);
+    expect((await ingest("status", { botId: CHIEF, name: null, avatar })).status).toBe(400);
     const st = await state();
     expect(findBot(st, "work", "nobody")).toBeUndefined();
     expect(findBot(st, "work", CHIEF)).toMatchObject({ group: "Main", avatar: null });

@@ -1236,13 +1236,16 @@ function feedItems(): ActivityItem[] {
   const first = state.data?.activity.items ?? [];
   const seen = new Set<number>();
   const items = [...first, ...state.olderActivity].filter((item) => !seen.has(item.seq) && seen.add(item.seq));
-  const filtered = items.filter((item) => {
+  // Collapse per account first, then apply the kind filter, so rows that were not
+  // back to back in the account's feed never merge.
+  const inAccount = items.filter((item) => {
     if (!accountMatches(item.account, state.account)) return false;
     if (state.feedFilter === "work" || state.feedFilter === "leaf") return item.account === state.feedFilter;
-    if (state.feedFilter === "needs") return item.kind === "waiting_user" || item.kind === "error" || item.kind === "message";
     return true;
   });
-  return visibleActivity(filtered);
+  return visibleActivity(inAccount).filter(
+    (item) => state.feedFilter !== "needs" || item.kind === "waiting_user" || item.kind === "error" || item.kind === "message",
+  );
 }
 
 function timeline(items: ActivityItem[]): HTMLElement[] {

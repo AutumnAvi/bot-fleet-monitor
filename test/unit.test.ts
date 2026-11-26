@@ -207,6 +207,9 @@ describe("activity wording", () => {
     expect(out.map((e) => [e.seq, e.kind])).toEqual([[3, "done"]]);
     const repeat = visibleActivity([item(2, "waiting_user", "OK?"), item(1, "message", "OK?")]);
     expect(repeat.map((e) => e.kind)).toEqual(["waiting_user"]);
+    // A message only gives way to the status right behind it, never past a dropped row.
+    const run = visibleActivity([item(3, "message", "T"), item(2, "working", "T"), item(1, "waiting_user", "T")]);
+    expect(run.map((e) => [e.seq, e.kind])).toEqual([[3, "message"]]);
   });
 
   it("does not collapse different text, different bots, or non-adjacent repeats", () => {
